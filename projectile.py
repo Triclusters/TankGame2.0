@@ -46,7 +46,7 @@ class Shell(Entity):
         for tank in self.game.tanks:
             if tank is self.owner_tank or tank.damage_model.state.destroyed:
                 continue
-            if self.position.distance_to(tank.world_position) > 4.2:
+            if (self.position - tank.world_position).length() > 4.2:
                 continue
 
             local_hit = tank.localize_point(self.position)
@@ -66,7 +66,7 @@ class Shell(Entity):
         dot = max(-1.0, min(1.0, -shell_dir.dot(normal)))
         impact_angle = degrees(acos(dot))
 
-        distance_m = self.position.distance_to(self.owner_tank.muzzle.world_position)
+        distance_m = (self.position - self.owner_tank.muzzle.world_position).length()
         result = evaluate_hit(self.ammo, zone, zone_spec.thickness_mm, impact_angle, distance_m)
 
         dbg = ProjectileDebug(
