@@ -19,9 +19,9 @@ class TankMovementController:
 
     def update_player(self):
         throttle = 0.0
-        if held_keys["w"]:
+        if held_keys["w"] or held_keys["up arrow"]:
             throttle += 1.0
-        if held_keys["s"]:
+        if held_keys["s"] or held_keys["down arrow"]:
             throttle -= 1.0
 
         if throttle > 0:
@@ -32,7 +32,9 @@ class TankMovementController:
             self.state.desired_speed = 0.0
 
         self._apply_longitudinal_dynamics()
-        self._apply_hull_turning(held_keys["d"] - held_keys["a"])
+        steer_right = held_keys["d"] or held_keys["right arrow"]
+        steer_left = held_keys["a"] or held_keys["left arrow"]
+        self._apply_hull_turning(steer_right - steer_left)
         self._apply_motion()
 
     def update_ai(self, throttle: float, steer: float):

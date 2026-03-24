@@ -1,4 +1,4 @@
-from ursina import Text, camera, color, time
+from ursina import Entity, Text, camera, color, time
 
 from config import DEBUG_FONT_SCALE
 
@@ -7,13 +7,22 @@ class TankHUD:
     def __init__(self, game):
         self.game = game
 
+        self.panel = Entity(
+            parent=camera.ui,
+            model="quad",
+            position=(-0.72, 0.32),
+            scale=(0.55, 0.34),
+            color=color.rgba(15, 20, 18, 175),
+        )
+
         self.reticle = Text(text="+", origin=(0, 0), scale=2.0, color=color.red)
         self.reticle.parent = camera.ui
         self.reticle.position = (0, 0)
 
-        self.ammo_text = Text(parent=camera.ui, x=-0.86, y=0.45, scale=1.1)
-        self.reload_text = Text(parent=camera.ui, x=-0.86, y=0.40, scale=1.0)
-        self.damage_text = Text(parent=camera.ui, x=-0.86, y=0.33, scale=0.9)
+        self.ammo_text = Text(parent=camera.ui, x=-0.94, y=0.45, scale=1.1, color=color.cyan)
+        self.reload_text = Text(parent=camera.ui, x=-0.94, y=0.40, scale=1.0, color=color.azure)
+        self.speed_text = Text(parent=camera.ui, x=-0.94, y=0.35, scale=1.0, color=color.lime)
+        self.damage_text = Text(parent=camera.ui, x=-0.94, y=0.28, scale=0.9, color=color.white)
 
         self.debug_text = Text(
             parent=camera.ui,
@@ -27,12 +36,13 @@ class TankHUD:
 
     def update(self):
         player = self.game.player
-        self.ammo_text.text = f"Ammo: {player.current_ammo_type}"
+        self.ammo_text.text = f"Ammo: {player.current_ammo_type}  (1=AP  2=HE  Tab=cycle)"
 
         if player.reload_timer > 0:
             self.reload_text.text = f"Reload: {player.reload_timer:.1f}s"
         else:
             self.reload_text.text = "Reload: READY"
+        self.speed_text.text = f"Speed: {player.movement.state.speed:.1f} m/s"
 
         status = player.damage_model.status_lines()
         self.damage_text.text = (

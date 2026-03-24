@@ -2,6 +2,7 @@ from ursina import (
     Ursina,
     EditorCamera,
     Entity,
+    Quad,
     Sky,
     Text,
     Vec3,
@@ -41,12 +42,14 @@ class TankGame:
         mouse.locked = True
 
         self.phase_summary_printed = False
+        self._last_key_state = {}
 
     def _build_environment(self):
         Entity(
             model="plane",
             scale=(BATTLEFIELD_SIZE, 1, BATTLEFIELD_SIZE),
-            texture=None,
+            texture="grass",
+            texture_scale=(BATTLEFIELD_SIZE / 7, BATTLEFIELD_SIZE / 7),
             color=color.rgb(72, 98, 66),
             collider=None,
         )
@@ -64,8 +67,25 @@ class TankGame:
         for x, z in [(-12, -5), (6, 12), (20, -10), (-25, 28), (36, 8)]:
             Entity(model="cube", color=color.gray, position=(x, 1.5, z), scale=(2.5, 3.0, 2.5))
 
+        # Background silhouettes to give the battlefield depth.
+        for x, z, ry, sx, sy in [
+            (-65, -55, 12, 70, 18),
+            (60, -50, -8, 60, 15),
+            (-58, 52, -5, 65, 20),
+            (58, 55, 7, 70, 16),
+        ]:
+            Entity(
+                model=Quad(mode="ngon", segments=2, thickness=1),
+                position=(x, sy / 2, z),
+                rotation=(0, ry, 0),
+                scale=(sx, sy),
+                color=color.rgba(90, 120, 95, 220),
+                double_sided=True,
+            )
+
     def update(self):
         self._print_phase_summaries_once()
+        self._handle_discrete_inputs()
 
         if held_keys["escape"]:
             mouse.locked = False
@@ -94,6 +114,26 @@ class TankGame:
         camera = self.app.camera
         camera.position = camera.position.lerp(pivot + back + up, min(1, time.dt * 10))
         camera.look_at(self.player.muzzle.world_position + self.player.turret.forward * 25)
+
+    def _pressed(self, key: str) -> bool:
+        down = bool(held_keys[key])
+        previous = self._last_key_state.get(key, False)
+        self._last_key_state[key] = down
+        return down and not previous
+
+    def _handle_discrete_inputs(self):
+        # Keep key-bind actions responsive even when the engine-level input callback
+        # is skipped (for example due to focus hiccups in some environments).
+        if self._pressed("v"):
+            self.player.turret_controller.toggle_zoom()
+        if self._pressed("r"):
+            self.restart()
+        if self._pressed("1"):
+            self.player.current_ammo_type = "AP"
+        if self._pressed("2"):
+            self.player.current_ammo_type = "HE"
+        if self._pressed("tab"):
+            self.player.cycle_ammo()
 
     def input(self, key):
         if key == "v":
