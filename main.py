@@ -7,6 +7,7 @@ from ursina import (
     Text,
     Vec3,
     application,
+    camera,
     color,
     held_keys,
     mouse,
@@ -111,8 +112,7 @@ class TankGame:
         back = -self.player.turret.forward * (3.6 if self.player.turret_controller.zoomed else 8.5)
         up = Vec3(0, 1.2 if self.player.turret_controller.zoomed else 3.2, 0)
 
-        camera = self.app.camera
-        camera.position = camera.position.lerp(pivot + back + up, min(1, time.dt * 10))
+        camera.world_position = camera.world_position.lerp(pivot + back + up, min(1, time.dt * 10))
         camera.look_at(self.player.muzzle.world_position + self.player.turret.forward * 25)
 
     def _pressed(self, key: str) -> bool:
