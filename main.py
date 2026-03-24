@@ -1,4 +1,5 @@
 from ursina import (
+    DirectionalLight,
     Ursina,
     EditorCamera,
     Entity,
@@ -12,6 +13,7 @@ from ursina import (
     held_keys,
     lerp,
     mouse,
+    scene,
     time,
 )
 
@@ -55,7 +57,9 @@ class TankGame:
             color=color.rgb(72, 98, 66),
             collider=None,
         )
-        Sky(color=color.rgb(110, 140, 180))
+        Sky(texture="sky_default", color=color.rgb(160, 190, 225))
+        sun = DirectionalLight(parent=scene, y=30, z=-20, rotation=(45, -35, 0))
+        sun.color = color.rgba(255, 245, 220, 0.9)
 
         # Simple hill and cover placeholders.
         for x, z, sx, sy, sz in [
@@ -137,7 +141,9 @@ class TankGame:
             self.player.cycle_ammo()
 
     def input(self, key):
-        if key == "v":
+        if key == "left mouse down":
+            self.player.try_fire(self)
+        elif key == "v":
             self.player.turret_controller.toggle_zoom()
         elif key == "r":
             self.restart()

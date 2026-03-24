@@ -11,9 +11,11 @@ from turret import TurretController
 
 class Tank(Entity):
     def __init__(self, position=(0, 0, 0), tint=color.gray, name="tank"):
+        is_enemy = name == "enemy"
+        hull_tint = color.rgb(156, 86, 72) if is_enemy else tint
         super().__init__(
             model="cube",
-            color=tint,
+            color=hull_tint,
             position=position,
             scale=(3.8, 1.2, 5.2),
             collider=None,
@@ -21,10 +23,15 @@ class Tank(Entity):
         )
         self.spec = DEFAULT_TANK_SPEC
 
-        self.turret = Entity(parent=self, model="cube", color=tint.tint(0.1), y=1.2, scale=(2.5, 0.8, 2.6))
+        turret_tint = color.rgb(178, 104, 87) if is_enemy else tint.tint(0.1)
+        self.turret = Entity(parent=self, model="cube", color=turret_tint, y=1.2, scale=(2.5, 0.8, 2.6))
         self.gun_pivot = Entity(parent=self.turret, y=0.15, z=0.8)
         self.gun = Entity(parent=self.gun_pivot, model="cube", color=color.dark_gray, scale=(0.26, 0.26, 2.8), z=1.3)
         self.muzzle = Entity(parent=self.gun_pivot, model="cube", color=color.yellow, scale=(0.08, 0.08, 0.08), z=2.7)
+
+        # A small visual mast makes enemy vehicles easy to identify at range.
+        if is_enemy:
+            Entity(parent=self.turret, model="cube", color=color.red, y=0.7, z=-0.5, scale=(0.15, 0.7, 0.15))
 
         self.movement = TankMovementController(self, self.spec)
         self.turret_controller = TurretController(self, self.spec)
