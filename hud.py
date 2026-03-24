@@ -26,11 +26,20 @@ class TankHUD:
 
         self.debug_text = Text(
             parent=camera.ui,
-            x=-0.86,
-            y=-0.45,
-            scale=DEBUG_FONT_SCALE,
-            color=color.azure,
+            x=-0.87,
+            y=-0.34,
+            scale=DEBUG_FONT_SCALE * 1.15,
+            color=color.rgb(210, 235, 255),
+            background=True,
         )
+        self.debug_backdrop = Entity(
+            parent=camera.ui,
+            model="quad",
+            position=(-0.53, -0.35),
+            scale=(0.94, 0.21),
+            color=color.rgba(10, 14, 16, 175),
+        )
+        self.debug_text.z = -0.1
 
         self.banner = Text(parent=camera.ui, origin=(0, 0), y=0.35, scale=1.4, color=color.orange)
 
