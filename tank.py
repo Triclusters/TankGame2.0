@@ -12,26 +12,29 @@ from turret import TurretController
 class Tank(Entity):
     def __init__(self, position=(0, 0, 0), tint=color.gray, name="tank"):
         is_enemy = name == "enemy"
-        hull_tint = color.rgb(156, 86, 72) if is_enemy else tint
+        hull_tint = color.rgb(120, 108, 84) if is_enemy else color.rgb(112, 122, 88)
         super().__init__(
             model="cube",
             color=hull_tint,
             position=position,
-            scale=(3.8, 1.2, 5.2),
+            scale=(3.2, 1.0, 5.8),
             collider=None,
             name=name,
         )
         self.spec = DEFAULT_TANK_SPEC
 
-        turret_tint = color.rgb(178, 104, 87) if is_enemy else tint.tint(0.1)
-        self.turret = Entity(parent=self, model="cube", color=turret_tint, y=1.2, scale=(2.5, 0.8, 2.6))
-        self.gun_pivot = Entity(parent=self.turret, y=0.15, z=0.8)
-        self.gun = Entity(parent=self.gun_pivot, model="cube", color=color.dark_gray, scale=(0.26, 0.26, 2.8), z=1.3)
-        self.muzzle = Entity(parent=self.gun_pivot, model="cube", color=color.yellow, scale=(0.08, 0.08, 0.08), z=2.7)
+        turret_tint = hull_tint.tint(0.06 if is_enemy else 0.02)
+        self.turret = Entity(parent=self, model="cube", color=turret_tint, y=1.03, scale=(2.25, 0.78, 2.75))
+        self.gun_pivot = Entity(parent=self.turret, y=0.14, z=1.0)
+        self.gun = Entity(parent=self.gun_pivot, model="cube", color=color.dark_gray, scale=(0.2, 0.2, 3.15), z=1.52)
+        self.muzzle = Entity(parent=self.gun_pivot, model="cube", color=color.yellow, scale=(0.11, 0.11, 0.11), z=3.04)
+        self.cupola = Entity(parent=self.turret, model="cube", color=turret_tint.tint(0.05), x=-0.36, y=0.36, z=-0.24, scale=(0.46, 0.24, 0.46))
+        self.side_skirt_left = Entity(parent=self, model="cube", color=hull_tint.tint(0.03), x=-1.68, y=-0.08, scale=(0.12, 0.6, 4.8))
+        self.side_skirt_right = Entity(parent=self, model="cube", color=hull_tint.tint(0.03), x=1.68, y=-0.08, scale=(0.12, 0.6, 4.8))
 
         # A small visual mast makes enemy vehicles easy to identify at range.
         if is_enemy:
-            Entity(parent=self.turret, model="cube", color=color.red, y=0.7, z=-0.5, scale=(0.15, 0.7, 0.15))
+            Entity(parent=self.turret, model="cube", color=color.red, y=0.63, z=-0.72, scale=(0.13, 0.5, 0.13))
 
         self.movement = TankMovementController(self, self.spec)
         self.turret_controller = TurretController(self, self.spec)

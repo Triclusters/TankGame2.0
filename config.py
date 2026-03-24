@@ -45,18 +45,18 @@ class TankSpec:
 
 AMMO_TYPES: Dict[str, AmmoSpec] = {
     "AP": AmmoSpec(
-        name="AP",
-        muzzle_velocity=930.0,
-        penetration_0m=250.0,
-        he_power=25.0,
-        reload_time=7.0,
-        ricochet_angle_deg=70.0,
+        name="75mm APCBC",
+        muzzle_velocity=750.0,
+        penetration_0m=135.0,
+        he_power=35.0,
+        reload_time=6.4,
+        ricochet_angle_deg=68.0,
     ),
     "HE": AmmoSpec(
-        name="HE",
-        muzzle_velocity=760.0,
-        penetration_0m=55.0,
-        he_power=120.0,
+        name="75mm HE",
+        muzzle_velocity=550.0,
+        penetration_0m=28.0,
+        he_power=155.0,
         reload_time=6.0,
         ricochet_angle_deg=78.0,
     ),
@@ -64,36 +64,36 @@ AMMO_TYPES: Dict[str, AmmoSpec] = {
 
 
 DEFAULT_TANK_SPEC = TankSpec(
-    name="Prototype MBT",
-    mass_tons=48.0,
-    max_forward_speed=12.0,
-    max_reverse_speed=5.0,
-    acceleration=2.4,
-    braking=5.0,
-    hull_turn_rate_deg=22.0,
-    turret_turn_rate_deg=16.0,
-    gun_elevation_rate_deg=10.0,
-    gun_min_pitch_deg=-8.0,
+    name="Panzer IV F2",
+    mass_tons=23.6,
+    max_forward_speed=10.5,
+    max_reverse_speed=2.9,
+    acceleration=1.7,
+    braking=3.9,
+    hull_turn_rate_deg=18.5,
+    turret_turn_rate_deg=13.0,
+    gun_elevation_rate_deg=6.0,
+    gun_min_pitch_deg=-10.0,
     gun_max_pitch_deg=20.0,
-    detection_range=260.0,
-    fire_align_tolerance_deg=2.4,
+    detection_range=210.0,
+    fire_align_tolerance_deg=2.1,
     armor_zones={
-        "front": ArmorZoneSpec("front", 220.0),
-        "side": ArmorZoneSpec("side", 90.0),
-        "rear": ArmorZoneSpec("rear", 60.0),
-        "turret": ArmorZoneSpec("turret", 180.0),
+        "front": ArmorZoneSpec("front", 80.0),
+        "side": ArmorZoneSpec("side", 30.0),
+        "rear": ArmorZoneSpec("rear", 20.0),
+        "turret": ArmorZoneSpec("turret", 50.0),
     },
 )
 
 
 MODULE_LAYOUT: Dict[str, Tuple[Tuple[float, float, float], ModuleSpec]] = {
-    # Local-space positions in hull coordinates used for coarse post-penetration module checks.
-    "crew": ((0.0, 1.3, -0.6), ModuleSpec("crew", 100.0)),
-    "engine": ((0.0, 1.0, -2.2), ModuleSpec("engine", 90.0)),
-    "transmission": ((0.0, 0.9, 1.7), ModuleSpec("transmission", 80.0)),
-    "tracks": ((1.7, 0.5, 0.0), ModuleSpec("tracks", 120.0)),
-    "gun_breech": ((0.0, 2.2, 1.0), ModuleSpec("gun_breech", 70.0)),
-    "ammo_rack": ((-0.8, 1.1, -0.8), ModuleSpec("ammo_rack", 60.0)),
+    # Panzer IV F2 inspired layout (aggregated by system for this prototype).
+    "crew": ((0.15, 1.45, 0.55), ModuleSpec("crew", 110.0)),
+    "engine": ((0.0, 1.05, -2.05), ModuleSpec("engine", 85.0)),
+    "transmission": ((0.0, 0.95, 1.95), ModuleSpec("transmission", 95.0)),
+    "tracks": ((1.7, 0.45, 0.0), ModuleSpec("tracks", 125.0)),
+    "gun_breech": ((0.0, 2.0, 1.05), ModuleSpec("gun_breech", 78.0)),
+    "ammo_rack": ((-0.95, 1.1, -0.35), ModuleSpec("ammo_rack", 65.0)),
 }
 
 
