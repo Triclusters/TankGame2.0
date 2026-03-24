@@ -58,8 +58,10 @@ class TankMovementController:
         self.state.speed = clamp(self.state.speed, -self.spec.max_reverse_speed, self.spec.max_forward_speed)
 
     def _apply_hull_turning(self, steer_input: float):
-        steer_scale = max(0.25, 1.0 - abs(self.state.speed) / self.spec.max_forward_speed)
-        yaw_delta = steer_input * self.spec.hull_turn_rate_deg * steer_scale * time.dt
+        speed_ratio = min(1.0, abs(self.state.speed) / max(0.1, self.spec.max_forward_speed))
+        steer_scale = max(0.3, 1.0 - speed_ratio * 0.7)
+        reverse_modifier = -1.0 if self.state.speed < -0.1 else 1.0
+        yaw_delta = steer_input * reverse_modifier * self.spec.hull_turn_rate_deg * steer_scale * time.dt
         self.tank.rotation_y += yaw_delta
 
     def _apply_motion(self):

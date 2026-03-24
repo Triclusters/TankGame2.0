@@ -22,8 +22,8 @@ class Shell(Entity):
     def __init__(self, owner_tank, ammo, position, direction, game):
         super().__init__(
             model="sphere",
-            color=color.yellow,
-            scale=0.07,
+            color=color.rgb(255, 224, 120),
+            scale=0.14,
             position=position,
             collider=None,
         )
@@ -32,6 +32,13 @@ class Shell(Entity):
         self.velocity = direction.normalized() * ammo.muzzle_velocity
         self.life = 0.0
         self.game = game
+        self.tracer = Entity(
+            parent=self,
+            model="cube",
+            color=color.rgba(255, 190, 80, 210),
+            scale=(0.06, 0.06, 1.1),
+            z=-0.55,
+        )
 
     def update(self):
         dt = time.dt
@@ -42,15 +49,17 @@ class Shell(Entity):
 
         self.velocity += Vec3(0, -self.ammo.gravity, 0) * dt
         self.position += self.velocity * dt
+        if self.velocity.length() > 0.1:
+            self.look_at(self.position + self.velocity.normalized())
 
         for tank in self.game.tanks:
             if tank is self.owner_tank or tank.damage_model.state.destroyed:
                 continue
-            if (self.position - tank.world_position).length() > 4.2:
+            if (self.position - tank.world_position).length() > 4.8:
                 continue
 
             local_hit = tank.localize_point(self.position)
-            if abs(local_hit.x) > 2.2 or local_hit.y < 0.0 or local_hit.y > 3.3 or abs(local_hit.z) > 2.8:
+            if abs(local_hit.x) > 2.35 or local_hit.y < 0.0 or local_hit.y > 3.4 or abs(local_hit.z) > 3.2:
                 continue
 
             self._resolve_hit(tank, local_hit)

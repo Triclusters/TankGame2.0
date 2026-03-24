@@ -21,8 +21,10 @@ class DamageModel:
 
     def apply_non_penetration(self, he_power: float):
         # Spall/shock chance for tracks or optics-like systems (abstracted as tracks/gun_breech).
-        if he_power > 80 and random.random() < 0.2:
-            self._damage_module("tracks", 15)
+        if he_power > 80 and random.random() < 0.3:
+            self._damage_module("tracks", 18)
+        if he_power > 130 and random.random() < 0.22:
+            self._damage_module("crew", 10)
 
     def apply_penetration(self, local_hit_point, shell_energy_factor: float):
         weighted = []
@@ -43,10 +45,10 @@ class DamageModel:
                 pick = name
                 break
 
-        base = 35.0 * shell_energy_factor
+        base = 52.0 * shell_energy_factor
         self._damage_module(pick, base)
 
-        if pick == "ammo_rack" and random.random() < 0.25:
+        if pick == "ammo_rack" and random.random() < 0.32:
             self.state.destroyed = True
             self.state.log.append("Ammo rack detonation: catastrophic kill")
 
