@@ -1,4 +1,5 @@
 from ursina import (
+    AmbientLight,
     DirectionalLight,
     Ursina,
     EditorCamera,
@@ -12,6 +13,7 @@ from ursina import (
     color,
     held_keys,
     lerp,
+    lit_with_shadows_shader,
     mouse,
     scene,
     time,
@@ -49,17 +51,20 @@ class TankGame:
         self._last_key_state = {}
 
     def _build_environment(self):
-        Entity(
+        ground = Entity(
             model="plane",
             scale=(BATTLEFIELD_SIZE, 1, BATTLEFIELD_SIZE),
-            texture="grass",
+            texture="assets/textures/ground.ppm",
             texture_scale=(BATTLEFIELD_SIZE / 7, BATTLEFIELD_SIZE / 7),
-            color=color.rgb(72, 98, 66),
+            color=color.rgb(108, 120, 92),
             collider=None,
         )
+        ground.shader = lit_with_shadows_shader
+
         Sky(texture="sky_default", color=color.rgb(160, 190, 225))
         sun = DirectionalLight(parent=scene, y=30, z=-20, rotation=(45, -35, 0))
-        sun.color = color.rgba(255, 245, 220, 0.9)
+        sun.color = color.rgba(255, 242, 214, 0.86)
+        AmbientLight(parent=scene, color=color.rgba(168, 182, 194, 0.35))
 
         # Simple hill and cover placeholders.
         for x, z, sx, sy, sz in [
@@ -68,10 +73,24 @@ class TankGame:
             (30, 20, 9, 5, 9),
             (-5, 35, 22, 3, 8),
         ]:
-            Entity(model="cube", color=color.rgb(80, 110, 70), position=(x, sy / 2, z), scale=(sx, sy, sz))
+            hill = Entity(
+                model="cube",
+                texture="assets/textures/rock.ppm",
+                color=color.rgb(106, 114, 88),
+                position=(x, sy / 2, z),
+                scale=(sx, sy, sz),
+            )
+            hill.shader = lit_with_shadows_shader
 
         for x, z in [(-12, -5), (6, 12), (20, -10), (-25, 28), (36, 8)]:
-            Entity(model="cube", color=color.gray, position=(x, 1.5, z), scale=(2.5, 3.0, 2.5))
+            cover = Entity(
+                model="cube",
+                texture="assets/textures/rock.ppm",
+                color=color.rgb(118, 118, 124),
+                position=(x, 1.5, z),
+                scale=(2.5, 3.0, 2.5),
+            )
+            cover.shader = lit_with_shadows_shader
 
         # Background silhouettes to give the battlefield depth.
         for x, z, ry, sx, sy in [
