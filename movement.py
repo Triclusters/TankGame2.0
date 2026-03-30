@@ -9,6 +9,7 @@ from config import TankSpec
 class MovementState:
     speed: float = 0.0
     desired_speed: float = 0.0
+    steer_axis: float = 0.0
 
 
 class TankMovementController:
@@ -58,10 +59,38 @@ class TankMovementController:
         self.state.speed = clamp(self.state.speed, -self.spec.max_reverse_speed, self.spec.max_forward_speed)
 
     def _apply_hull_turning(self, steer_input: float):
-        speed_ratio = min(1.0, abs(self.state.speed) / max(0.1, self.spec.max_forward_speed))
-        steer_scale = max(0.3, 1.0 - speed_ratio * 0.7)
-        reverse_modifier = -1.0 if self.state.speed < -0.1 else 1.0
-        yaw_delta = steer_input * reverse_modifier * self.spec.hull_turn_rate_deg * steer_scale * time.dt
+        dt = time.dt
+        steer_input = clamp(steer_input, -1.0, 1.0)
+
+        # War Thunder-style feel: steering input builds slightly over time rather than
+        # snapping instantly, making track transitions feel heavier.
+        steer_response = 4.8
+        self.state.steer_axis += (steer_input - self.state.steer_axis) * min(1.0, steer_response * dt)
+
+        speed_abs = abs(self.state.speed)
+        speed_ratio = min(1.0, speed_abs / max(0.1, self.spec.max_forward_speed))
+        is_neutral_turn = speed_abs < 0.75 and abs(self.state.desired_speed) < 0.3
+
+        if is_neutral_turn:
+            # Neutral steer/pivot turn when nearly stopped.
+            yaw_rate = self.spec.hull_turn_rate_deg * 0.72
+            yaw_delta = self.state.steer_axis * yaw_rate * dt
+        else:
+            # As speed rises, available turn authority reduces and reverses invert steer feel.
+            steer_scale = max(0.26, 1.08 - speed_ratio * 0.72)
+            reverse_modifier = -1.0 if self.state.speed < -0.2 else 1.0
+            yaw_delta = (
+                self.state.steer_axis
+                * reverse_modifier
+                * self.spec.hull_turn_rate_deg
+                * steer_scale
+                * dt
+            )
+
+            # Hard turning at speed bleeds velocity from track scrub, matching heavier hull behavior.
+            turn_drag = abs(self.state.steer_axis) * speed_ratio * 1.6 * dt
+            self.state.speed *= max(0.0, 1.0 - turn_drag)
+
         self.tank.rotation_y += yaw_delta
 
     def _apply_motion(self):
