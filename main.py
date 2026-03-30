@@ -1,3 +1,5 @@
+from random import Random
+
 from ursina import (
     AmbientLight,
     DirectionalLight,
@@ -51,20 +53,23 @@ class TankGame:
         self._last_key_state = {}
 
     def _build_environment(self):
+        rng = Random(20)
         ground = Entity(
             model="plane",
             scale=(BATTLEFIELD_SIZE, 1, BATTLEFIELD_SIZE),
             texture="assets/textures/ground.ppm",
             texture_scale=(BATTLEFIELD_SIZE / 7, BATTLEFIELD_SIZE / 7),
-            color=color.rgb(108, 120, 92),
+            color=color.rgb(118, 130, 100),
             collider=None,
         )
         ground.shader = lit_with_shadows_shader
 
-        Sky(texture="sky_default", color=color.rgb(160, 190, 225))
+        Sky(texture="sky_default", color=color.rgb(140, 175, 215))
         sun = DirectionalLight(parent=scene, y=30, z=-20, rotation=(45, -35, 0))
-        sun.color = color.rgba(255, 242, 214, 0.86)
-        AmbientLight(parent=scene, color=color.rgba(168, 182, 194, 0.35))
+        sun.color = color.rgba(255, 236, 196, 0.92)
+        AmbientLight(parent=scene, color=color.rgba(145, 158, 170, 0.42))
+        scene.fog_color = color.rgb(132, 152, 166)
+        scene.fog_density = 0.0038
 
         # Simple hill and cover placeholders.
         for x, z, sx, sy, sz in [
@@ -91,6 +96,57 @@ class TankGame:
                 scale=(2.5, 3.0, 2.5),
             )
             cover.shader = lit_with_shadows_shader
+
+        # Distressed ground strips to break up the flat texture.
+        for x, z, yaw, sx, sz in [
+            (-18, -8, 14, 9, 2.2),
+            (8, 6, -11, 12, 1.8),
+            (24, 15, 18, 7, 2.6),
+            (-30, 25, -7, 10, 2.4),
+        ]:
+            rut = Entity(
+                model="cube",
+                texture="assets/textures/rock.ppm",
+                color=color.rgba(94, 86, 76, 145),
+                position=(x, 0.03, z),
+                rotation=(0, yaw, 0),
+                scale=(sx, 0.05, sz),
+            )
+            rut.shader = lit_with_shadows_shader
+
+        # Scatter background rocks and tree-like silhouettes for richer depth.
+        for _ in range(34):
+            px = rng.uniform(-60, 60)
+            pz = rng.uniform(-60, 60)
+            if -25 < px < 25 and -25 < pz < 25:
+                continue
+            stone_height = rng.uniform(0.9, 2.4)
+            stone = Entity(
+                model="cube",
+                texture="assets/textures/rock.ppm",
+                color=color.rgb(rng.randint(94, 123), rng.randint(96, 122), rng.randint(90, 116)),
+                position=(px, stone_height / 2, pz),
+                rotation=(0, rng.uniform(0, 360), 0),
+                scale=(rng.uniform(1.0, 3.8), stone_height, rng.uniform(1.0, 3.8)),
+            )
+            stone.shader = lit_with_shadows_shader
+
+            if rng.random() < 0.45:
+                trunk_h = rng.uniform(1.3, 2.1)
+                trunk = Entity(
+                    model="cube",
+                    color=color.rgb(74, 62, 50),
+                    position=(px + rng.uniform(-1.2, 1.2), trunk_h / 2, pz + rng.uniform(-1.2, 1.2)),
+                    scale=(0.25, trunk_h, 0.25),
+                )
+                trunk.shader = lit_with_shadows_shader
+                canopy = Entity(
+                    model="cube",
+                    color=color.rgb(80, 108, 77),
+                    position=(trunk.x, trunk_h + 0.65, trunk.z),
+                    scale=(1.2, 1.4, 1.2),
+                )
+                canopy.shader = lit_with_shadows_shader
 
         # Background silhouettes to give the battlefield depth.
         for x, z, ry, sx, sy in [

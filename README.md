@@ -1,6 +1,6 @@
-# TankGame2.0 - Ursina Tank Simulator Prototype
+# TankGame2.0 - Tank Simulator Prototype
 
-A modular 3D tank combat prototype in Python + Ursina focused on realistic behavior (movement inertia, turret handling, ballistics, armor penetration, and internal module damage) using placeholder visuals.
+A modular 3D tank combat prototype focused on realistic behavior (movement inertia, turret handling, ballistics, armor penetration, and internal module damage). Gameplay logic is currently implemented in Python, while graphics assets are engine-agnostic and do not need to be Python-specific.
 
 ## Run
 

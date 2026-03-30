@@ -1,6 +1,6 @@
 from math import cos, radians, sin
 
-from ursina import Entity, Vec3, color, lit_with_shadows_shader, time
+from ursina import Entity, Vec3, color, destroy, invoke, lit_with_shadows_shader, scene, time
 
 from config import AMMO_TYPES, DEFAULT_TANK_SPEC, MODULE_LAYOUT
 from damage import DamageModel
@@ -64,6 +64,25 @@ class Tank(Entity):
             z=-0.24,
             scale=(0.46, 0.24, 0.46),
         )
+        self.commander_sight = Entity(
+            parent=self.turret,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=color.rgb(62, 74, 82),
+            x=0.44,
+            y=0.34,
+            z=-0.2,
+            scale=(0.3, 0.18, 0.3),
+        )
+        self.turret_bustle = Entity(
+            parent=self.turret,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=turret_tint.tint(-0.04),
+            y=0.05,
+            z=-1.35,
+            scale=(1.6, 0.55, 0.82),
+        )
         self.side_skirt_left = Entity(
             parent=self,
             model="cube",
@@ -81,6 +100,61 @@ class Tank(Entity):
             x=1.68,
             y=-0.08,
             scale=(0.12, 0.6, 4.8),
+        )
+        self.glacis = Entity(
+            parent=self,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=hull_tint.tint(0.06),
+            y=0.43,
+            z=2.45,
+            rotation=(21, 0, 0),
+            scale=(2.75, 0.28, 0.82),
+        )
+        self.rear_deck = Entity(
+            parent=self,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=hull_tint.tint(-0.05),
+            y=0.44,
+            z=-2.1,
+            scale=(2.6, 0.12, 1.3),
+        )
+        self.exhaust_left = Entity(
+            parent=self,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=color.rgb(78, 78, 74),
+            x=-0.8,
+            y=0.22,
+            z=-2.82,
+            scale=(0.24, 0.24, 0.22),
+        )
+        self.exhaust_right = Entity(
+            parent=self,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=color.rgb(78, 78, 74),
+            x=0.8,
+            y=0.22,
+            z=-2.82,
+            scale=(0.24, 0.24, 0.22),
+        )
+        self.barrel_sleeve = Entity(
+            parent=self.gun_pivot,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=color.rgb(88, 90, 94),
+            scale=(0.38, 0.38, 0.38),
+            z=0.65,
+        )
+        self.muzzle_brake = Entity(
+            parent=self.gun_pivot,
+            model="cube",
+            texture="assets/textures/metal.ppm",
+            color=color.rgb(78, 78, 82),
+            scale=(0.24, 0.2, 0.28),
+            z=2.85,
         )
         self._build_running_gear(hull_tint)
 
@@ -102,8 +176,16 @@ class Tank(Entity):
             self.gun,
             self.muzzle,
             self.cupola,
+            self.commander_sight,
+            self.turret_bustle,
             self.side_skirt_left,
             self.side_skirt_right,
+            self.glacis,
+            self.rear_deck,
+            self.exhaust_left,
+            self.exhaust_right,
+            self.barrel_sleeve,
+            self.muzzle_brake,
         ):
             part.shader = lit_with_shadows_shader
 
@@ -149,6 +231,7 @@ class Tank(Entity):
         self.current_reload = ammo.reload_time
         self.recoil_offset = 0.34
         self.recoil_velocity = 4.8
+        self._spawn_muzzle_flash(shell_direction)
         return True
 
     def _build_running_gear(self, hull_tint):
@@ -166,6 +249,32 @@ class Tank(Entity):
                     scale=(0.18, 0.56 if idx in (0, 5) else 0.52, 0.44),
                 )
                 wheel.shader = lit_with_shadows_shader
+
+    def _spawn_muzzle_flash(self, shell_direction):
+        flash = Entity(
+            parent=scene,
+            model="cube",
+            color=color.rgba(255, 216, 128, 215),
+            position=self.muzzle.world_position + shell_direction * 0.2,
+            rotation=self.gun.world_rotation,
+            scale=(0.16, 0.16, 0.16),
+        )
+        flash.shader = lit_with_shadows_shader
+        flash.animate_scale((0.1, 0.1, 1.05), duration=0.06)
+        flash.fade_out(duration=0.05)
+        invoke(destroy, flash, delay=0.1)
+
+        smoke = Entity(
+            parent=scene,
+            model="cube",
+            color=color.rgba(170, 170, 170, 145),
+            position=self.muzzle.world_position + shell_direction * 0.35,
+            scale=0.22,
+        )
+        smoke.animate_position(smoke.position + shell_direction * 1.0 + Vec3(0, 0.45, 0), duration=0.35)
+        smoke.animate_scale(0.75, duration=0.35)
+        smoke.fade_out(duration=0.32)
+        invoke(destroy, smoke, delay=0.38)
 
     def sample_terrain_height(self, x, z):
         # Light-weight synthetic terrain to avoid heavy mesh collision setup.
