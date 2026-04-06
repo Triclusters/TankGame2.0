@@ -1,0 +1,9 @@
+{
+  "name": "tankgame2-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Web-only tank combat prototype renderer",
+  "scripts": {
+    "start": "npx serve web_renderer"
+  }
+}

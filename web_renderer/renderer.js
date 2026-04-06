@@ -1,0 +1,651 @@
+import * as THREE from "https://unpkg.com/three@0.165.0/build/three.module.js";
+
+const FIELD_SIZE = 280;
+const GRAVITY = 9.81;
+const COVER_POINTS = [
+  new THREE.Vector3(-35, 0, 10),
+  new THREE.Vector3(10, 0, -25),
+  new THREE.Vector3(30, 0, 20),
+  new THREE.Vector3(-5, 0, 35),
+];
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x90afcd, 0.0046);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.07;
+document.body.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 1200);
+const clock = new THREE.Clock();
+
+function addSkyDome() {
+  const geometry = new THREE.SphereGeometry(900, 24, 24);
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: {
+      topColor: { value: new THREE.Color(0x88afd2) },
+      horizonColor: { value: new THREE.Color(0xc9dae8) },
+      bottomColor: { value: new THREE.Color(0xe8d4b5) },
+    },
+    vertexShader: `varying vec3 vWorldPosition;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `uniform vec3 topColor;
+      uniform vec3 horizonColor;
+      uniform vec3 bottomColor;
+      varying vec3 vWorldPosition;
+      void main() {
+        float h = normalize(vWorldPosition).y;
+        vec3 sky = mix(horizonColor, topColor, smoothstep(0.0, 0.9, max(h, 0.0)));
+        sky = mix(bottomColor, sky, smoothstep(-0.6, 0.12, h));
+        gl_FragColor = vec4(sky, 1.0);
+      }`,
+  });
+  scene.add(new THREE.Mesh(geometry, material));
+}
+
+addSkyDome();
+scene.add(new THREE.HemisphereLight(0xd0e0f3, 0x4d5a40, 0.56));
+
+const sun = new THREE.DirectionalLight(0xfff1d2, 1.2);
+sun.position.set(78, 92, -44);
+sun.castShadow = true;
+sun.shadow.mapSize.set(3072, 3072);
+sun.shadow.camera.left = -180;
+sun.shadow.camera.right = 180;
+sun.shadow.camera.top = 180;
+sun.shadow.camera.bottom = -180;
+scene.add(sun);
+
+const terrainGeom = new THREE.PlaneGeometry(FIELD_SIZE, FIELD_SIZE, 128, 128);
+terrainGeom.rotateX(-Math.PI / 2);
+const positions = terrainGeom.attributes.position;
+for (let i = 0; i < positions.count; i += 1) {
+  const x = positions.getX(i);
+  const z = positions.getZ(i);
+  positions.setY(i, Math.sin(x * 0.045) * 1.2 + Math.cos(z * 0.04) * 1.15 + Math.sin((x + z) * 0.09) * 0.45);
+}
+terrainGeom.computeVertexNormals();
+
+const terrain = new THREE.Mesh(
+  terrainGeom,
+  new THREE.MeshStandardMaterial({ color: 0x6f845f, roughness: 0.98, metalness: 0.02 })
+);
+terrain.receiveShadow = true;
+scene.add(terrain);
+
+function addRock(x, z, s) {
+  const rock = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(s, 0),
+    new THREE.MeshStandardMaterial({ color: 0x72756d, roughness: 0.93 })
+  );
+  rock.position.set(x, 0.5 + s * 0.5, z);
+  rock.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
+  rock.castShadow = true;
+  rock.receiveShadow = true;
+  scene.add(rock);
+}
+
+function addTree(x, z, h = 2.4) {
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.22, h, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5b4836, roughness: 0.9 })
+  );
+  trunk.position.set(x, h / 2, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+
+  const crown = new THREE.Mesh(
+    new THREE.ConeGeometry(1.1, 2.1, 9),
+    new THREE.MeshStandardMaterial({ color: 0x5f7f4e, roughness: 0.95 })
+  );
+  crown.position.set(x, h + 0.9, z);
+  crown.castShadow = true;
+  crown.receiveShadow = true;
+  scene.add(crown);
+}
+
+for (let i = 0; i < 100; i += 1) {
+  const x = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.95);
+  const z = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.95);
+  if (Math.abs(x) < 28 && Math.abs(z) < 28) continue;
+  if (Math.random() > 0.45) addRock(x, z, THREE.MathUtils.randFloat(0.3, 1.1));
+  if (Math.random() < 0.32) addTree(x + Math.random(), z + Math.random(), THREE.MathUtils.randFloat(1.6, 2.8));
+}
+
+function addCover(x, z, sx, sy, sz, c = 0x6f6b61) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(sx, sy, sz),
+    new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 })
+  );
+  mesh.position.set(x, sy / 2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+addCover(-35, 10, 18, 4, 16, 0x667055);
+addCover(10, -25, 12, 3, 10, 0x64704f);
+addCover(30, 20, 9, 5, 9, 0x636e4e);
+addCover(-5, 35, 22, 3, 8, 0x677259);
+
+function makeTank(colorHex) {
+  const tank = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.78, metalness: 0.25 });
+
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.2, 6.2), material);
+  hull.position.y = 1.2;
+  hull.castShadow = true;
+  tank.add(hull);
+
+  const turretPivot = new THREE.Group();
+  turretPivot.position.set(0, 2.0, 0);
+  tank.add(turretPivot);
+
+  const turret = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.25, 1.45, 1.0, 16),
+    new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex).multiplyScalar(0.88), roughness: 0.72, metalness: 0.28 })
+  );
+  turret.castShadow = true;
+  turretPivot.add(turret);
+
+  const gunPivot = new THREE.Group();
+  gunPivot.position.set(0, 0.15, 1.1);
+  turretPivot.add(gunPivot);
+
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.16, 4.6, 12),
+    new THREE.MeshStandardMaterial({ color: 0x424950, roughness: 0.46, metalness: 0.8 })
+  );
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = 2.2;
+  barrel.castShadow = true;
+  gunPivot.add(barrel);
+
+  return { tank, turretPivot, gunPivot, hull, turret };
+}
+
+const playerMesh = makeTank(0x6b8868);
+playerMesh.tank.position.set(-20, 0, -20);
+scene.add(playerMesh.tank);
+
+const enemyMesh = makeTank(0x8a6c60);
+enemyMesh.tank.position.set(48, 0, 34);
+enemyMesh.tank.rotation.y = THREE.MathUtils.degToRad(210);
+scene.add(enemyMesh.tank);
+
+function makeState(mesh, isPlayer = false) {
+  return {
+    mesh,
+    isPlayer,
+    hp: 100,
+    modules: { engine: 100, gun: 100, turret: 100, crew: 100 },
+    destroyed: false,
+    reload: 0,
+    ammoType: "AP",
+    enginePower: 0,
+    turretYawTarget: 0,
+    gunPitchTarget: 0,
+    velocity: 0,
+    ai: {
+      state: "snipe",
+      decisionCooldown: 0,
+      fireTimer: 0,
+      destination: null,
+      aimError: 0.05,
+    },
+  };
+}
+
+const player = makeState(playerMesh, true);
+const enemy = makeState(enemyMesh, false);
+
+const shells = [];
+const flashes = [];
+
+const keys = new Set();
+const hud = document.getElementById("hud");
+const compass = document.getElementById("compass");
+const status = document.getElementById("status");
+const rangefinderEl = document.getElementById("rangefinder");
+const hitCamEl = document.getElementById("hitcam");
+const hitCamCanvas = document.getElementById("hitcam-canvas");
+const hitCamText = document.getElementById("hitcam-text");
+const hitCamCtx = hitCamCanvas.getContext("2d");
+
+const mode = { view: "third", freeLook: false, holdZoom: false };
+const aim = { cameraYaw: 0, cameraPitch: 0.22, freeLookYaw: 0, freeLookPitch: 0 };
+let rangeMeters = null;
+let notification = "Battle started.";
+const hitCam = { active: false, ttl: 0, report: null };
+
+function terrainHeightAt(x, z) {
+  return Math.sin(x * 0.045) * 1.2 + Math.cos(z * 0.04) * 1.15 + Math.sin((x + z) * 0.09) * 0.45;
+}
+
+function muzzlePosition(state) {
+  const pos = state.mesh.gunPivot.getWorldPosition(new THREE.Vector3());
+  const q = state.mesh.gunPivot.getWorldQuaternion(new THREE.Quaternion());
+  return pos.add(new THREE.Vector3(0, 0, 4.85).applyQuaternion(q));
+}
+
+function applyDamage(target, shell) {
+  const impact = shell.ammoType === "HE" ? 16 : 28;
+  const hpBefore = target.hp;
+  target.hp = Math.max(0, target.hp - impact);
+
+  const moduleKeys = ["engine", "gun", "turret", "crew"];
+  const hitModule = moduleKeys[Math.floor(Math.random() * moduleKeys.length)];
+  const moduleDamage = shell.ammoType === "HE" ? 18 : 26;
+  const moduleBefore = target.modules[hitModule];
+  target.modules[hitModule] = Math.max(0, target.modules[hitModule] - moduleDamage);
+  notification = `${target.isPlayer ? "You were hit" : "Enemy hit"}: ${hitModule.toUpperCase()} -${moduleDamage.toFixed(0)}`;
+
+  if (target.modules.crew <= 0 || target.hp <= 0) target.destroyed = true;
+  if (target.destroyed) notification = target.isPlayer ? "Player knocked out." : "Target destroyed.";
+
+  return {
+    penetrated: shell.ammoType === "AP" ? Math.random() > 0.15 : Math.random() > 0.35,
+    hpDamage: Math.max(0, hpBefore - target.hp),
+    module: hitModule,
+    moduleDamage: Math.max(0, moduleBefore - target.modules[hitModule]),
+    destroyed: target.destroyed,
+    ammoType: shell.ammoType,
+  };
+}
+
+function showHitCam(report) {
+  // Only show text if something was actually damaged.
+  if (report.hpDamage <= 0 && report.moduleDamage <= 0) {
+    hitCam.active = false;
+    hitCamEl.style.display = "none";
+    hitCamText.textContent = "";
+    return;
+  }
+
+  hitCam.active = true;
+  hitCam.ttl = 2.25;
+  hitCam.report = report;
+  hitCamEl.style.display = "block";
+  hitCamText.textContent = `${report.ammoType} ${report.penetrated ? "penetration" : "partial"} · ${report.module.toUpperCase()} -${report.moduleDamage} · HP -${report.hpDamage}${report.destroyed ? " · TARGET DESTROYED" : ""}`;
+}
+
+function renderHitCam() {
+  hitCamCtx.clearRect(0, 0, hitCamCanvas.width, hitCamCanvas.height);
+  if (!hitCam.active || !hitCam.report) return;
+  const r = hitCam.report;
+
+  hitCamCtx.fillStyle = "rgba(36, 51, 68, .95)";
+  hitCamCtx.fillRect(16, 24, 210, 72);
+  hitCamCtx.strokeStyle = "rgba(210,225,245,.45)";
+  hitCamCtx.lineWidth = 1.2;
+  hitCamCtx.strokeRect(16, 24, 210, 72);
+
+  hitCamCtx.fillStyle = "rgba(70,80,96,.9)";
+  hitCamCtx.fillRect(92, 40, 56, 32); // turret block
+
+  hitCamCtx.strokeStyle = r.penetrated ? "#ffd08a" : "#ff8f72";
+  hitCamCtx.lineWidth = 2.6;
+  hitCamCtx.beginPath();
+  hitCamCtx.moveTo(290, 60);
+  hitCamCtx.lineTo(r.penetrated ? 118 : 170, 56);
+  hitCamCtx.stroke();
+
+  if (r.penetrated) {
+    hitCamCtx.strokeStyle = "rgba(255, 170, 90, .85)";
+    hitCamCtx.beginPath();
+    hitCamCtx.moveTo(118, 56);
+    hitCamCtx.lineTo(55, 56 + (r.module === "engine" ? 16 : r.module === "crew" ? -12 : 0));
+    hitCamCtx.stroke();
+  }
+
+  hitCamCtx.fillStyle = "rgba(255, 210, 155, .95)";
+  hitCamCtx.font = "11px sans-serif";
+  hitCamCtx.fillText(r.penetrated ? "PEN" : "NON-PEN", 246, 30);
+}
+
+function spawnFlash(position) {
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.32, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffd08a })
+  );
+  flash.position.copy(position);
+  flash.userData.life = 0.06;
+  flashes.push(flash);
+  scene.add(flash);
+}
+
+function fireMainGun(shooter, target, forcedError = 0) {
+  if (shooter.destroyed || shooter.reload > 0 || shooter.modules.gun <= 0) return;
+  shooter.reload = shooter.ammoType === "HE" ? 1.35 : 0.95;
+
+  const q = shooter.mesh.gunPivot.getWorldQuaternion(new THREE.Quaternion());
+  const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
+
+  const errorVec = new THREE.Vector3(
+    THREE.MathUtils.randFloatSpread(forcedError),
+    THREE.MathUtils.randFloatSpread(forcedError * 0.6),
+    THREE.MathUtils.randFloatSpread(forcedError)
+  );
+  dir.add(errorVec).normalize();
+
+  const shell = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.045, 0.28, 4, 8),
+    new THREE.MeshBasicMaterial({ color: shooter.ammoType === "HE" ? 0xff9e67 : 0xffecb5 })
+  );
+  shell.position.copy(muzzlePosition(shooter));
+  shell.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  shell.userData.velocity = dir.multiplyScalar(shooter.ammoType === "HE" ? 82 : 100);
+  shell.userData.gravity = shooter.ammoType === "HE" ? GRAVITY * 1.08 : GRAVITY;
+  shell.userData.life = 8;
+  shell.userData.shooter = shooter;
+  shell.userData.target = target;
+  shell.userData.ammoType = shooter.ammoType;
+  shells.push(shell);
+  scene.add(shell);
+  spawnFlash(shell.position);
+}
+
+function measureRange() {
+  rangeMeters = player.mesh.tank.position.distanceTo(enemy.mesh.tank.position);
+}
+
+function restartBattle() {
+  player.hp = 100;
+  enemy.hp = 100;
+  player.modules = { engine: 100, gun: 100, turret: 100, crew: 100 };
+  enemy.modules = { engine: 100, gun: 100, turret: 100, crew: 100 };
+  player.destroyed = false;
+  enemy.destroyed = false;
+  player.reload = 0;
+  enemy.reload = 0;
+  player.mesh.tank.position.set(-20, terrainHeightAt(-20, -20), -20);
+  enemy.mesh.tank.position.set(48, terrainHeightAt(48, 34), 34);
+  player.mesh.tank.rotation.set(0, 0, 0);
+  enemy.mesh.tank.rotation.set(0, THREE.MathUtils.degToRad(210), 0);
+  notification = "Battle restarted.";
+  hitCam.active = false;
+  hitCamEl.style.display = "none";
+  hitCamText.textContent = "";
+}
+
+function nearestCover(fromPosition) {
+  let best = COVER_POINTS[0];
+  let bestD = Infinity;
+  COVER_POINTS.forEach((p) => {
+    const d = fromPosition.distanceTo(p);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  });
+  return best.clone();
+}
+
+function updateEnemyAI(dt) {
+  if (enemy.destroyed) return;
+  const dist = enemy.mesh.tank.position.distanceTo(player.mesh.tank.position);
+  enemy.ai.decisionCooldown -= dt;
+  enemy.ai.fireTimer -= dt;
+
+  if (enemy.ai.decisionCooldown <= 0) {
+    enemy.ai.decisionCooldown = THREE.MathUtils.randFloat(1.2, 2.0);
+
+    if (enemy.hp < 45 || enemy.modules.engine < 35) {
+      enemy.ai.state = "cover";
+      enemy.ai.destination = nearestCover(enemy.mesh.tank.position);
+      enemy.ai.aimError = 0.085;
+    } else if (dist > 70) {
+      enemy.ai.state = "push";
+      enemy.ai.destination = player.mesh.tank.position.clone().add(new THREE.Vector3(THREE.MathUtils.randFloat(-8, 8), 0, THREE.MathUtils.randFloat(-8, 8)));
+      enemy.ai.aimError = 0.08;
+    } else {
+      enemy.ai.state = "snipe";
+      enemy.ai.destination = enemy.mesh.tank.position.clone();
+      enemy.ai.aimError = 0.04;
+    }
+  }
+
+  const targetPos = enemy.ai.destination || enemy.mesh.tank.position;
+  const toTarget = targetPos.clone().sub(enemy.mesh.tank.position);
+  const moveDist = toTarget.length();
+
+  let throttle = 0;
+  if (enemy.ai.state === "push") throttle = 0.75;
+  if (enemy.ai.state === "cover") throttle = 0.55;
+  if (enemy.ai.state === "snipe") throttle = moveDist > 8 ? 0.25 : 0;
+
+  if (moveDist > 1.5 && throttle > 0) {
+    const desiredYaw = Math.atan2(toTarget.x, toTarget.z);
+    const yawDiff = desiredYaw - enemy.mesh.tank.rotation.y;
+    enemy.mesh.tank.rotation.y += Math.sin(yawDiff) * dt * 1.2;
+    const moveDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), enemy.mesh.tank.rotation.y);
+    enemy.mesh.tank.position.addScaledVector(moveDir, dt * 8.5 * throttle);
+  }
+
+  // Aim with imperfect prediction.
+  const toPlayer = player.mesh.tank.position.clone().sub(enemy.mesh.tank.position);
+  const predicted = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 0, player.velocity * 0.15));
+  const toPredicted = predicted.sub(enemy.mesh.tank.position);
+  const desiredTurret = Math.atan2(toPredicted.x, toPredicted.z) - enemy.mesh.tank.rotation.y;
+  enemy.turretYawTarget = desiredTurret;
+  enemy.gunPitchTarget = THREE.MathUtils.clamp(0.03 + toPlayer.length() * 0.0004, -0.1, 0.16);
+
+  if (enemy.ai.fireTimer <= 0 && dist < 135 && enemy.modules.gun > 0) {
+    enemy.ai.fireTimer = THREE.MathUtils.randFloat(2.1, 3.6);
+    fireMainGun(enemy, player, enemy.ai.aimError);
+  }
+}
+
+function updateTankTransform(state, dt) {
+  state.mesh.turretPivot.rotation.y += (state.turretYawTarget - state.mesh.turretPivot.rotation.y) * Math.min(1, dt * 8);
+  state.mesh.gunPivot.rotation.x += (state.gunPitchTarget - state.mesh.gunPivot.rotation.x) * Math.min(1, dt * 9);
+}
+
+function setMode(nextMode) {
+  mode.view = nextMode;
+  if (nextMode !== "third") mode.freeLook = false;
+}
+
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+window.addEventListener("mousedown", (e) => {
+  if (e.button === 0) fireMainGun(player, enemy, 0.018);
+  if (e.button === 2) mode.holdZoom = true;
+});
+window.addEventListener("mouseup", (e) => {
+  if (e.button === 2) mode.holdZoom = false;
+});
+
+window.addEventListener("keydown", (e) => {
+  keys.add(e.code);
+  if (e.code === "Space") fireMainGun(player, enemy, 0.018);
+  if (e.code === "Digit1") player.ammoType = "AP";
+  if (e.code === "Digit2") player.ammoType = "HE";
+  if (e.code === "Tab") {
+    e.preventDefault();
+    player.ammoType = player.ammoType === "AP" ? "HE" : "AP";
+  }
+  if (e.code === "KeyX") measureRange();
+  if (e.code === "KeyR") restartBattle();
+  if (e.code === "KeyV") setMode(mode.view === "third" ? "gunner" : "third");
+  if (e.code === "KeyB") setMode(mode.view === "binoc" ? "third" : "binoc");
+  if (e.code === "KeyC") mode.freeLook = !mode.freeLook;
+});
+
+window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+window.addEventListener("mousemove", (e) => {
+  if (document.pointerLockElement !== renderer.domElement) return;
+  const yawDelta = e.movementX * 0.0024;
+  const pitchDelta = e.movementY * 0.0017;
+
+  if (mode.freeLook) {
+    aim.freeLookYaw -= yawDelta;
+    aim.freeLookPitch = THREE.MathUtils.clamp(aim.freeLookPitch - pitchDelta, -0.35, 0.55);
+    return;
+  }
+
+  if (mode.view === "gunner") {
+    player.turretYawTarget -= yawDelta;
+    player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - pitchDelta, -0.16, 0.28);
+    return;
+  }
+
+  aim.cameraYaw -= yawDelta;
+  aim.cameraPitch = THREE.MathUtils.clamp(aim.cameraPitch - pitchDelta, -0.2, 0.58);
+  player.turretYawTarget += (aim.cameraYaw - player.turretYawTarget) * 0.65;
+  player.gunPitchTarget = THREE.MathUtils.clamp(aim.cameraPitch * 0.45, -0.16, 0.28);
+});
+
+renderer.domElement.addEventListener("click", () => renderer.domElement.requestPointerLock());
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function updateCamera(dt) {
+  const muzzle = muzzlePosition(player);
+  const fovTarget = mode.holdZoom ? (mode.view === "gunner" ? 26 : 38) : (mode.view === "binoc" ? 32 : mode.view === "gunner" ? 50 : 72);
+  camera.fov += (fovTarget - camera.fov) * Math.min(1, dt * 10);
+  camera.updateProjectionMatrix();
+
+  if (mode.view === "gunner") {
+    const gunnerPos = player.mesh.gunPivot.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.22, 0));
+    camera.position.lerp(gunnerPos, 1 - Math.exp(-dt * 20));
+    camera.lookAt(muzzle.clone().add(new THREE.Vector3(0, 0, 35)));
+    return;
+  }
+
+  if (mode.view === "binoc") {
+    const head = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 3.1, 0));
+    const view = new THREE.Vector3(0, 0, 1)
+      .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), aim.cameraYaw + player.mesh.tank.rotation.y);
+    camera.position.lerp(head, 1 - Math.exp(-dt * 12));
+    camera.lookAt(head.clone().add(view.multiplyScalar(70)));
+    return;
+  }
+
+  const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 3.3, 0));
+  const yaw = mode.freeLook ? aim.freeLookYaw + player.mesh.tank.rotation.y : aim.cameraYaw + player.mesh.tank.rotation.y;
+  const pitch = mode.freeLook ? aim.freeLookPitch : aim.cameraPitch;
+  const distance = mode.holdZoom ? 7.4 : 11.5;
+  const offset = new THREE.Vector3(0, 2.9, -distance)
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+  camera.position.lerp(pivot.clone().add(offset), 1 - Math.exp(-dt * 9.5));
+  camera.lookAt(muzzle.clone().add(new THREE.Vector3(0, 0, 20)));
+}
+
+function updateShells(dt) {
+  for (let i = shells.length - 1; i >= 0; i -= 1) {
+    const shell = shells[i];
+    shell.userData.life -= dt;
+    shell.userData.velocity.y -= shell.userData.gravity * dt;
+    shell.position.addScaledVector(shell.userData.velocity, dt);
+    shell.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), shell.userData.velocity.clone().normalize());
+
+    const target = shell.userData.target;
+    if (!target.destroyed && shell.position.distanceTo(target.mesh.tank.position.clone().add(new THREE.Vector3(0, 1.6, 0))) < 2.4) {
+      const report = applyDamage(target, { ammoType: shell.userData.ammoType });
+      if (shell.userData.shooter?.isPlayer && !target.isPlayer) showHitCam(report);
+      scene.remove(shell);
+      shells.splice(i, 1);
+      continue;
+    }
+
+    if (shell.position.y < 0 || shell.userData.life <= 0) {
+      scene.remove(shell);
+      shells.splice(i, 1);
+    }
+  }
+}
+
+function updateFlashes(dt) {
+  for (let i = flashes.length - 1; i >= 0; i -= 1) {
+    const flash = flashes[i];
+    flash.userData.life -= dt;
+    flash.scale.multiplyScalar(0.88);
+    if (flash.userData.life <= 0) {
+      scene.remove(flash);
+      flashes.splice(i, 1);
+    }
+  }
+}
+
+function updateHUD() {
+  const bearing = ((THREE.MathUtils.radToDeg(player.mesh.tank.rotation.y) % 360) + 360) % 360;
+  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}`;
+  compass.textContent = `Bearing ${bearing.toFixed(0)}°`;
+  status.textContent = `Speed ${Math.abs(player.velocity).toFixed(1)} m/s | Engine ${player.modules.engine.toFixed(0)}% | Gun ${player.modules.gun.toFixed(0)}%`;
+  rangefinderEl.textContent = rangeMeters === null ? "Range ---- m" : `Range ${rangeMeters.toFixed(0)} m`;
+  const events = document.getElementById("events");
+  events.textContent = notification;
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.033);
+
+  player.reload = Math.max(0, player.reload - dt);
+  enemy.reload = Math.max(0, enemy.reload - dt);
+
+  // Player movement.
+  const steer = (keys.has("KeyA") ? 1 : 0) + (keys.has("KeyD") ? -1 : 0);
+  const throttle = (keys.has("KeyW") ? 1 : 0) + (keys.has("KeyS") ? -1 : 0);
+  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.18 : 1;
+
+  if (!player.destroyed && player.modules.engine > 0) {
+    player.enginePower += (throttle - player.enginePower) * Math.min(1, dt * 4.2);
+    player.mesh.tank.rotation.y += steer * dt * 0.98 * (0.6 + Math.abs(player.enginePower) * 0.4);
+
+    if (Math.abs(player.enginePower) > 0.02) {
+      const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
+      player.velocity = player.enginePower * 14.5 * boost;
+      player.mesh.tank.position.addScaledVector(dir, player.velocity * dt);
+    } else {
+      player.velocity = 0;
+    }
+  }
+
+  player.mesh.tank.position.x = THREE.MathUtils.clamp(player.mesh.tank.position.x, -FIELD_SIZE * 0.45, FIELD_SIZE * 0.45);
+  player.mesh.tank.position.z = THREE.MathUtils.clamp(player.mesh.tank.position.z, -FIELD_SIZE * 0.45, FIELD_SIZE * 0.45);
+  player.mesh.tank.position.y = terrainHeightAt(player.mesh.tank.position.x, player.mesh.tank.position.z);
+
+  if (keys.has("KeyQ")) player.turretYawTarget += dt * 0.92;
+  if (keys.has("KeyE")) player.turretYawTarget -= dt * 0.92;
+  if (keys.has("KeyR")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget + dt * 0.44, -0.16, 0.28);
+  if (keys.has("KeyF")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - dt * 0.44, -0.16, 0.28);
+
+  updateEnemyAI(dt);
+  enemy.mesh.tank.position.y = terrainHeightAt(enemy.mesh.tank.position.x, enemy.mesh.tank.position.z);
+  updateTankTransform(player, dt);
+  updateTankTransform(enemy, dt);
+  updateCamera(dt);
+  updateShells(dt);
+  updateFlashes(dt);
+  updateHUD();
+  if (hitCam.active) {
+    hitCam.ttl -= dt;
+    if (hitCam.ttl <= 0) {
+      hitCam.active = false;
+      hitCamEl.style.display = "none";
+      hitCamText.textContent = "";
+    }
+  }
+  renderHitCam();
+
+  renderer.render(scene, camera);
+}
+
+animate();
