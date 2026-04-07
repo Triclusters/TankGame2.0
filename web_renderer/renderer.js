@@ -235,6 +235,23 @@ enemyMesh.tank.rotation.y = THREE.MathUtils.degToRad(210);
 scene.add(enemyMesh.tank);
 
 function makeState(mesh, isPlayer = false) {
+  const vehicle = isPlayer
+    ? {
+        horsepower: 850,
+        massTons: 46,
+        maxForwardSpeed: 11.4,
+        maxReverseSpeed: 4.6,
+        turnRate: THREE.MathUtils.degToRad(27),
+        brakeDecel: 2.8,
+      }
+    : {
+        horsepower: 750,
+        massTons: 52,
+        maxForwardSpeed: 9.6,
+        maxReverseSpeed: 3.8,
+        turnRate: THREE.MathUtils.degToRad(22),
+        brakeDecel: 2.3,
+      };
   return {
     mesh,
     isPlayer,
@@ -244,11 +261,12 @@ function makeState(mesh, isPlayer = false) {
     reload: 0,
     ammoType: "AP",
     enginePower: 0,
+    vehicle,
     turretYawTarget: 0,
     gunPitchTarget: 0,
     velocity: 0,
-    turretTurnSpeed: THREE.MathUtils.degToRad(48),
-    gunPitchSpeed: THREE.MathUtils.degToRad(20),
+    turretTurnSpeed: THREE.MathUtils.degToRad(isPlayer ? 24 : 18),
+    gunPitchSpeed: THREE.MathUtils.degToRad(isPlayer ? 12 : 10),
     ai: {
       state: "snipe",
       decisionCooldown: 0,
@@ -533,6 +551,10 @@ function updateTankTransform(state, dt) {
   state.mesh.gunPivot.rotation.x += gunStep;
 }
 
+function wrapAngle(angle) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
 function setMode(nextMode) {
   mode.view = nextMode;
   if (nextMode !== "third") mode.freeLook = false;
@@ -587,7 +609,7 @@ window.addEventListener("mousemove", (e) => {
   aim.cameraYaw -= yawDelta;
   aim.cameraPitch = THREE.MathUtils.clamp(aim.cameraPitch - pitchDelta, -0.3, 0.58);
   if (!mode.freeLook) {
-    player.turretYawTarget = aim.cameraYaw;
+    player.turretYawTarget = wrapAngle(aim.cameraYaw - player.mesh.tank.rotation.y);
     if (control.stabilizer) player.gunPitchTarget = THREE.MathUtils.clamp(aim.cameraPitch * 0.5, -0.16, 0.28);
   }
 });
@@ -600,9 +622,8 @@ window.addEventListener("resize", () => {
 });
 
 function updateCamera(dt) {
-  const turretPos = player.mesh.turretPivot.getWorldPosition(new THREE.Vector3());
-  const turretForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
-    player.mesh.turretPivot.getWorldQuaternion(new THREE.Quaternion())
+  const gunForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
+    player.mesh.gunPivot.getWorldQuaternion(new THREE.Quaternion())
   );
   const fovTarget = mode.holdZoom ? (mode.view === "gunner" ? 20 : 30) : (mode.view === "binoc" ? 24 : mode.view === "gunner" ? 40 : 72);
   camera.fov += (fovTarget - camera.fov) * Math.min(1, dt * 10);
@@ -611,7 +632,7 @@ function updateCamera(dt) {
   if (mode.view === "gunner") {
     const sightPos = player.mesh.gunPivot.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.17, -0.05));
     camera.position.lerp(sightPos, 1 - Math.exp(-dt * 22));
-    camera.lookAt(turretPos.clone().add(turretForward.clone().multiplyScalar(90)));
+    camera.lookAt(sightPos.clone().add(gunForward.clone().multiplyScalar(220)));
     return;
   }
 
@@ -619,7 +640,7 @@ function updateCamera(dt) {
     const binoPos = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 4.8, 0));
     const binoDir = new THREE.Vector3(0, 0, 1)
       .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
-      .applyAxisAngle(new THREE.Vector3(0, 1, 0), aim.cameraYaw + player.mesh.tank.rotation.y);
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), aim.cameraYaw);
     camera.position.lerp(binoPos, 1 - Math.exp(-dt * 12));
     camera.lookAt(binoPos.clone().add(binoDir.multiplyScalar(120)));
     return;
@@ -627,14 +648,18 @@ function updateCamera(dt) {
 
   const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 2.8, 0));
   const distance = THREE.MathUtils.lerp(4.5, 14.0, aim.zoomStep);
-  const orbitYaw = aim.cameraYaw + player.mesh.tank.rotation.y;
+  const orbitYaw = aim.cameraYaw;
   const offset = new THREE.Vector3(0, 2.8, -distance)
     .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
     .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
   const targetCamPos = pivot.clone().add(offset);
   targetCamPos.y = Math.max(targetCamPos.y, terrainHeightAt(targetCamPos.x, targetCamPos.z) + 0.75);
   camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * control.cameraLag));
-  camera.lookAt(turretPos.clone().add(turretForward.clone().multiplyScalar(50)));
+  const viewDir = new THREE.Vector3(0, 0, 1)
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch * 0.75)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+  const thirdPersonDir = mode.freeLook ? viewDir : gunForward;
+  camera.lookAt(camera.position.clone().add(thirdPersonDir.multiplyScalar(70)));
 }
 
 function updateShells(dt) {
@@ -675,7 +700,7 @@ function updateFlashes(dt) {
 
 function updateHUD() {
   const bearing = ((THREE.MathUtils.radToDeg(player.mesh.tank.rotation.y) % 360) + 360) % 360;
-  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}<br/>WT-style: RMB gunner hold, C freelook hold, Wheel zoom, G stabilizer ${control.stabilizer ? "ON" : "OFF"}, H drive assist ${control.driveAssist ? "ON" : "OFF"}`;
+  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}<br/>Vehicle ${player.vehicle.horsepower}hp / ${player.vehicle.massTons}t | Turret ${THREE.MathUtils.radToDeg(player.turretTurnSpeed).toFixed(0)}°/s | WT-style: RMB gunner hold, C freelook hold, Wheel zoom, G stabilizer ${control.stabilizer ? "ON" : "OFF"}, H drive assist ${control.driveAssist ? "ON" : "OFF"}`;
   compass.textContent = `Bearing ${bearing.toFixed(0)}°`;
   status.textContent = `Speed ${Math.abs(player.velocity).toFixed(1)} m/s | Engine ${player.modules.engine.toFixed(0)}% | Gun ${player.modules.gun.toFixed(0)}%`;
   rangefinderEl.textContent = rangeMeters === null ? "Range ---- m" : `Range ${rangeMeters.toFixed(0)} m`;
@@ -693,21 +718,34 @@ function animate() {
   // Player movement.
   const steer = (keys.has("KeyA") ? 1 : 0) + (keys.has("KeyD") ? -1 : 0);
   const throttle = (keys.has("KeyW") ? 1 : 0) + (keys.has("KeyS") ? -1 : 0);
-  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.18 : 1;
+  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.05 : 1;
 
   if (!player.destroyed && player.modules.engine > 0) {
-    player.enginePower += (throttle - player.enginePower) * Math.min(1, dt * 4.2);
+    const hpPerTon = player.vehicle.horsepower / player.vehicle.massTons;
+    const acceleration = THREE.MathUtils.clamp(hpPerTon * 0.11, 1.2, 3.0);
+    player.enginePower += (throttle - player.enginePower) * Math.min(1, dt * 2.2);
+    const targetSpeed = player.enginePower >= 0
+      ? player.enginePower * player.vehicle.maxForwardSpeed * boost
+      : player.enginePower * player.vehicle.maxReverseSpeed;
+    const speedDelta = targetSpeed - player.velocity;
+    const decel = Math.abs(targetSpeed) < Math.abs(player.velocity) ? player.vehicle.brakeDecel : acceleration;
+    const maxSpeedStep = decel * dt;
+    player.velocity += THREE.MathUtils.clamp(speedDelta, -maxSpeedStep, maxSpeedStep);
+    if (Math.abs(throttle) < 0.01) {
+      player.velocity += THREE.MathUtils.clamp(-player.velocity, -player.vehicle.brakeDecel * dt * 0.55, player.vehicle.brakeDecel * dt * 0.55);
+    }
+
     let steerInput = steer;
     if (control.driveAssist && !mode.freeLook && Math.abs(throttle) > 0.1) {
-      const desiredHullYaw = aim.cameraYaw + player.mesh.tank.rotation.y;
+      const desiredHullYaw = aim.cameraYaw;
       const hullError = Math.atan2(Math.sin(desiredHullYaw - player.mesh.tank.rotation.y), Math.cos(desiredHullYaw - player.mesh.tank.rotation.y));
       steerInput += THREE.MathUtils.clamp(hullError * 1.7, -1, 1);
     }
-    player.mesh.tank.rotation.y += steerInput * dt * 0.98 * (0.6 + Math.abs(player.enginePower) * 0.4);
+    const speedFactor = THREE.MathUtils.clamp(Math.abs(player.velocity) / player.vehicle.maxForwardSpeed, 0, 1);
+    player.mesh.tank.rotation.y += steerInput * dt * player.vehicle.turnRate * (0.45 + speedFactor * 0.55);
 
-    if (Math.abs(player.enginePower) > 0.02) {
+    if (Math.abs(player.velocity) > 0.02) {
       const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
-      player.velocity = player.enginePower * 14.5 * boost;
       player.mesh.tank.position.addScaledVector(dir, player.velocity * dt);
       resolveTankObstacleCollision(player.mesh.tank.position);
     } else {
@@ -719,8 +757,14 @@ function animate() {
   player.mesh.tank.position.z = THREE.MathUtils.clamp(player.mesh.tank.position.z, -FIELD_SIZE * 0.45, FIELD_SIZE * 0.45);
   player.mesh.tank.position.y = terrainHeightAt(player.mesh.tank.position.x, player.mesh.tank.position.z);
 
-  if (keys.has("KeyQ")) player.turretYawTarget += dt * 0.92;
-  if (keys.has("KeyE")) player.turretYawTarget -= dt * 0.92;
+  if (keys.has("KeyQ")) {
+    player.turretYawTarget += dt * 0.92;
+    aim.cameraYaw += dt * 0.92;
+  }
+  if (keys.has("KeyE")) {
+    player.turretYawTarget -= dt * 0.92;
+    aim.cameraYaw -= dt * 0.92;
+  }
   if (keys.has("PageUp")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget + dt * 0.44, -0.16, 0.28);
   if (keys.has("PageDown")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - dt * 0.44, -0.16, 0.28);
 
