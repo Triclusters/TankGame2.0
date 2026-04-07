@@ -8,6 +8,7 @@ const COVER_POINTS = [
   new THREE.Vector3(30, 0, 20),
   new THREE.Vector3(-5, 0, 35),
 ];
+const obstacles = [];
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x90afcd, 0.0046);
@@ -232,8 +233,6 @@ const enemyMesh = makeTank(0x8a6c60);
 enemyMesh.tank.position.set(48, 0, 34);
 enemyMesh.tank.rotation.y = THREE.MathUtils.degToRad(210);
 scene.add(enemyMesh.tank);
-
-const obstacles = [];
 
 function makeState(mesh, isPlayer = false) {
   return {
