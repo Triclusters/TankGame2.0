@@ -84,23 +84,26 @@ terrain.receiveShadow = true;
 scene.add(terrain);
 
 function addRock(x, z, s) {
+  const y = terrainHeightAt(x, z);
   const rock = new THREE.Mesh(
     new THREE.DodecahedronGeometry(s, 0),
     new THREE.MeshStandardMaterial({ color: 0x72756d, roughness: 0.93 })
   );
-  rock.position.set(x, 0.5 + s * 0.5, z);
+  rock.position.set(x, y + s * 0.5, z);
   rock.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
   rock.castShadow = true;
   rock.receiveShadow = true;
   scene.add(rock);
+  registerObstacle(x, z, s * 0.85, s * 1.2);
 }
 
 function addTree(x, z, h = 2.4) {
+  const y = terrainHeightAt(x, z);
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.16, 0.22, h, 8),
     new THREE.MeshStandardMaterial({ color: 0x5b4836, roughness: 0.9 })
   );
-  trunk.position.set(x, h / 2, z);
+  trunk.position.set(x, y + h / 2, z);
   trunk.castShadow = true;
   scene.add(trunk);
 
@@ -108,10 +111,11 @@ function addTree(x, z, h = 2.4) {
     new THREE.ConeGeometry(1.1, 2.1, 9),
     new THREE.MeshStandardMaterial({ color: 0x5f7f4e, roughness: 0.95 })
   );
-  crown.position.set(x, h + 0.9, z);
+  crown.position.set(x, y + h + 0.9, z);
   crown.castShadow = true;
   crown.receiveShadow = true;
   scene.add(crown);
+  registerObstacle(x, z, 1.0, h + 2.1);
 }
 
 for (let i = 0; i < 100; i += 1) {
@@ -122,15 +126,61 @@ for (let i = 0; i < 100; i += 1) {
   if (Math.random() < 0.32) addTree(x + Math.random(), z + Math.random(), THREE.MathUtils.randFloat(1.6, 2.8));
 }
 
+function addGrassAndFlowers() {
+  const grassGeom = new THREE.ConeGeometry(0.08, 0.7, 5);
+  const grassMat = new THREE.MeshStandardMaterial({ color: 0x6e9b59, roughness: 0.96 });
+  const grass = new THREE.InstancedMesh(grassGeom, grassMat, 1200);
+  grass.castShadow = true;
+  grass.receiveShadow = true;
+
+  const flowerGeom = new THREE.SphereGeometry(0.06, 6, 6);
+  const flowerMat = new THREE.MeshStandardMaterial({ color: 0xf0c2de, roughness: 0.65, metalness: 0.02 });
+  const flowers = new THREE.InstancedMesh(flowerGeom, flowerMat, 260);
+
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < 1200; i += 1) {
+    const x = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.92);
+    const z = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.92);
+    const y = terrainHeightAt(x, z) + 0.35;
+    const s = THREE.MathUtils.randFloat(0.8, 1.3);
+    m.compose(
+      new THREE.Vector3(x, y, z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0)),
+      new THREE.Vector3(s, s, s)
+    );
+    grass.setMatrixAt(i, m);
+  }
+
+  for (let i = 0; i < 260; i += 1) {
+    const x = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.85);
+    const z = THREE.MathUtils.randFloatSpread(FIELD_SIZE * 0.85);
+    const y = terrainHeightAt(x, z) + 0.42;
+    const s = THREE.MathUtils.randFloat(0.7, 1.4);
+    m.compose(
+      new THREE.Vector3(x, y, z),
+      new THREE.Quaternion(),
+      new THREE.Vector3(s, s, s)
+    );
+    flowers.setMatrixAt(i, m);
+  }
+
+  scene.add(grass);
+  scene.add(flowers);
+}
+
+addGrassAndFlowers();
+
 function addCover(x, z, sx, sy, sz, c = 0x6f6b61) {
+  const y = terrainHeightAt(x, z);
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(sx, sy, sz),
     new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 })
   );
-  mesh.position.set(x, sy / 2, z);
+  mesh.position.set(x, y + sy / 2, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
+  registerObstacle(x, z, Math.max(sx, sz) * 0.55, sy);
 }
 
 addCover(-35, 10, 18, 4, 16, 0x667055);
@@ -183,6 +233,8 @@ enemyMesh.tank.position.set(48, 0, 34);
 enemyMesh.tank.rotation.y = THREE.MathUtils.degToRad(210);
 scene.add(enemyMesh.tank);
 
+const obstacles = [];
+
 function makeState(mesh, isPlayer = false) {
   return {
     mesh,
@@ -196,6 +248,8 @@ function makeState(mesh, isPlayer = false) {
     turretYawTarget: 0,
     gunPitchTarget: 0,
     velocity: 0,
+    turretTurnSpeed: THREE.MathUtils.degToRad(48),
+    gunPitchSpeed: THREE.MathUtils.degToRad(20),
     ai: {
       state: "snipe",
       decisionCooldown: 0,
@@ -223,13 +277,18 @@ const hitCamText = document.getElementById("hitcam-text");
 const hitCamCtx = hitCamCanvas.getContext("2d");
 
 const mode = { view: "third", freeLook: false, holdZoom: false };
-const aim = { cameraYaw: 0, cameraPitch: 0.22, freeLookYaw: 0, freeLookPitch: 0 };
+const aim = { cameraYaw: 0, cameraPitch: 0.22, zoomStep: 0.45 };
 let rangeMeters = null;
 let notification = "Battle started.";
 const hitCam = { active: false, ttl: 0, report: null };
+const control = { stabilizer: true, cameraLag: 12, driveAssist: true };
 
 function terrainHeightAt(x, z) {
   return Math.sin(x * 0.045) * 1.2 + Math.cos(z * 0.04) * 1.15 + Math.sin((x + z) * 0.09) * 0.45;
+}
+
+function registerObstacle(x, z, radius, height = 3) {
+  obstacles.push({ x, z, radius, height });
 }
 
 function muzzlePosition(state) {
@@ -391,6 +450,21 @@ function nearestCover(fromPosition) {
   return best.clone();
 }
 
+function resolveTankObstacleCollision(position, tankRadius = 2.3) {
+  for (const obstacle of obstacles) {
+    const dx = position.x - obstacle.x;
+    const dz = position.z - obstacle.z;
+    const d2 = dx * dx + dz * dz;
+    const minDist = tankRadius + obstacle.radius;
+    if (d2 < minDist * minDist) {
+      const d = Math.sqrt(Math.max(d2, 0.0001));
+      const push = (minDist - d) + 0.05;
+      position.x += (dx / d) * push;
+      position.z += (dz / d) * push;
+    }
+  }
+}
+
 function updateEnemyAI(dt) {
   if (enemy.destroyed) return;
   const dist = enemy.mesh.tank.position.distanceTo(player.mesh.tank.position);
@@ -430,6 +504,7 @@ function updateEnemyAI(dt) {
     enemy.mesh.tank.rotation.y += Math.sin(yawDiff) * dt * 1.2;
     const moveDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), enemy.mesh.tank.rotation.y);
     enemy.mesh.tank.position.addScaledVector(moveDir, dt * 8.5 * throttle);
+    resolveTankObstacleCollision(enemy.mesh.tank.position);
   }
 
   // Aim with imperfect prediction.
@@ -447,8 +522,16 @@ function updateEnemyAI(dt) {
 }
 
 function updateTankTransform(state, dt) {
-  state.mesh.turretPivot.rotation.y += (state.turretYawTarget - state.mesh.turretPivot.rotation.y) * Math.min(1, dt * 8);
-  state.mesh.gunPivot.rotation.x += (state.gunPitchTarget - state.mesh.gunPivot.rotation.x) * Math.min(1, dt * 9);
+  const turretDiff = THREE.MathUtils.euclideanModulo(
+    state.turretYawTarget - state.mesh.turretPivot.rotation.y + Math.PI,
+    Math.PI * 2
+  ) - Math.PI;
+  const turretStep = THREE.MathUtils.clamp(turretDiff, -state.turretTurnSpeed * dt, state.turretTurnSpeed * dt);
+  state.mesh.turretPivot.rotation.y += turretStep;
+
+  const gunDiff = state.gunPitchTarget - state.mesh.gunPivot.rotation.x;
+  const gunStep = THREE.MathUtils.clamp(gunDiff, -state.gunPitchSpeed * dt, state.gunPitchSpeed * dt);
+  state.mesh.gunPivot.rotation.x += gunStep;
 }
 
 function setMode(nextMode) {
@@ -459,10 +542,16 @@ function setMode(nextMode) {
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 window.addEventListener("mousedown", (e) => {
   if (e.button === 0) fireMainGun(player, enemy, 0.018);
-  if (e.button === 2) mode.holdZoom = true;
+  if (e.button === 2) {
+    mode.holdZoom = true;
+    if (mode.view === "third") setMode("gunner");
+  }
 });
 window.addEventListener("mouseup", (e) => {
-  if (e.button === 2) mode.holdZoom = false;
+  if (e.button === 2) {
+    mode.holdZoom = false;
+    if (mode.view === "gunner") setMode("third");
+  }
 });
 
 window.addEventListener("keydown", (e) => {
@@ -478,32 +567,30 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyR") restartBattle();
   if (e.code === "KeyV") setMode(mode.view === "third" ? "gunner" : "third");
   if (e.code === "KeyB") setMode(mode.view === "binoc" ? "third" : "binoc");
-  if (e.code === "KeyC") mode.freeLook = !mode.freeLook;
+  if (e.code === "KeyC") mode.freeLook = true;
+  if (e.code === "KeyG") control.stabilizer = !control.stabilizer;
+  if (e.code === "KeyH") control.driveAssist = !control.driveAssist;
 });
 
-window.addEventListener("keyup", (e) => keys.delete(e.code));
+window.addEventListener("keyup", (e) => {
+  keys.delete(e.code);
+  if (e.code === "KeyC") mode.freeLook = false;
+});
+
+window.addEventListener("wheel", (e) => {
+  aim.zoomStep = THREE.MathUtils.clamp(aim.zoomStep + Math.sign(e.deltaY) * 0.05, 0.05, 1.0);
+});
 
 window.addEventListener("mousemove", (e) => {
   if (document.pointerLockElement !== renderer.domElement) return;
   const yawDelta = e.movementX * 0.0024;
   const pitchDelta = e.movementY * 0.0017;
-
-  if (mode.freeLook) {
-    aim.freeLookYaw -= yawDelta;
-    aim.freeLookPitch = THREE.MathUtils.clamp(aim.freeLookPitch - pitchDelta, -0.35, 0.55);
-    return;
-  }
-
-  if (mode.view === "gunner") {
-    player.turretYawTarget -= yawDelta;
-    player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - pitchDelta, -0.16, 0.28);
-    return;
-  }
-
   aim.cameraYaw -= yawDelta;
-  aim.cameraPitch = THREE.MathUtils.clamp(aim.cameraPitch - pitchDelta, -0.2, 0.58);
-  player.turretYawTarget += (aim.cameraYaw - player.turretYawTarget) * 0.65;
-  player.gunPitchTarget = THREE.MathUtils.clamp(aim.cameraPitch * 0.45, -0.16, 0.28);
+  aim.cameraPitch = THREE.MathUtils.clamp(aim.cameraPitch - pitchDelta, -0.3, 0.58);
+  if (!mode.freeLook) {
+    player.turretYawTarget = aim.cameraYaw;
+    if (control.stabilizer) player.gunPitchTarget = THREE.MathUtils.clamp(aim.cameraPitch * 0.5, -0.16, 0.28);
+  }
 });
 
 renderer.domElement.addEventListener("click", () => renderer.domElement.requestPointerLock());
@@ -514,37 +601,41 @@ window.addEventListener("resize", () => {
 });
 
 function updateCamera(dt) {
-  const muzzle = muzzlePosition(player);
-  const fovTarget = mode.holdZoom ? (mode.view === "gunner" ? 26 : 38) : (mode.view === "binoc" ? 32 : mode.view === "gunner" ? 50 : 72);
+  const turretPos = player.mesh.turretPivot.getWorldPosition(new THREE.Vector3());
+  const turretForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
+    player.mesh.turretPivot.getWorldQuaternion(new THREE.Quaternion())
+  );
+  const fovTarget = mode.holdZoom ? (mode.view === "gunner" ? 20 : 30) : (mode.view === "binoc" ? 24 : mode.view === "gunner" ? 40 : 72);
   camera.fov += (fovTarget - camera.fov) * Math.min(1, dt * 10);
   camera.updateProjectionMatrix();
 
   if (mode.view === "gunner") {
-    const gunnerPos = player.mesh.gunPivot.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.22, 0));
-    camera.position.lerp(gunnerPos, 1 - Math.exp(-dt * 20));
-    camera.lookAt(muzzle.clone().add(new THREE.Vector3(0, 0, 35)));
+    const sightPos = player.mesh.gunPivot.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.17, -0.05));
+    camera.position.lerp(sightPos, 1 - Math.exp(-dt * 22));
+    camera.lookAt(turretPos.clone().add(turretForward.clone().multiplyScalar(90)));
     return;
   }
 
   if (mode.view === "binoc") {
-    const head = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 3.1, 0));
-    const view = new THREE.Vector3(0, 0, 1)
+    const binoPos = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 4.8, 0));
+    const binoDir = new THREE.Vector3(0, 0, 1)
       .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
       .applyAxisAngle(new THREE.Vector3(0, 1, 0), aim.cameraYaw + player.mesh.tank.rotation.y);
-    camera.position.lerp(head, 1 - Math.exp(-dt * 12));
-    camera.lookAt(head.clone().add(view.multiplyScalar(70)));
+    camera.position.lerp(binoPos, 1 - Math.exp(-dt * 12));
+    camera.lookAt(binoPos.clone().add(binoDir.multiplyScalar(120)));
     return;
   }
 
-  const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 3.3, 0));
-  const yaw = mode.freeLook ? aim.freeLookYaw + player.mesh.tank.rotation.y : aim.cameraYaw + player.mesh.tank.rotation.y;
-  const pitch = mode.freeLook ? aim.freeLookPitch : aim.cameraPitch;
-  const distance = mode.holdZoom ? 7.4 : 11.5;
-  const offset = new THREE.Vector3(0, 2.9, -distance)
-    .applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
-    .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-  camera.position.lerp(pivot.clone().add(offset), 1 - Math.exp(-dt * 9.5));
-  camera.lookAt(muzzle.clone().add(new THREE.Vector3(0, 0, 20)));
+  const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 2.8, 0));
+  const distance = THREE.MathUtils.lerp(4.5, 14.0, aim.zoomStep);
+  const orbitYaw = aim.cameraYaw + player.mesh.tank.rotation.y;
+  const offset = new THREE.Vector3(0, 2.8, -distance)
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+  const targetCamPos = pivot.clone().add(offset);
+  targetCamPos.y = Math.max(targetCamPos.y, terrainHeightAt(targetCamPos.x, targetCamPos.z) + 0.75);
+  camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * control.cameraLag));
+  camera.lookAt(turretPos.clone().add(turretForward.clone().multiplyScalar(50)));
 }
 
 function updateShells(dt) {
@@ -564,7 +655,7 @@ function updateShells(dt) {
       continue;
     }
 
-    if (shell.position.y < 0 || shell.userData.life <= 0) {
+    if (shell.position.y < terrainHeightAt(shell.position.x, shell.position.z) || shell.userData.life <= 0) {
       scene.remove(shell);
       shells.splice(i, 1);
     }
@@ -585,7 +676,7 @@ function updateFlashes(dt) {
 
 function updateHUD() {
   const bearing = ((THREE.MathUtils.radToDeg(player.mesh.tank.rotation.y) % 360) + 360) % 360;
-  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}`;
+  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}<br/>WT-style: RMB gunner hold, C freelook hold, Wheel zoom, G stabilizer ${control.stabilizer ? "ON" : "OFF"}, H drive assist ${control.driveAssist ? "ON" : "OFF"}`;
   compass.textContent = `Bearing ${bearing.toFixed(0)}°`;
   status.textContent = `Speed ${Math.abs(player.velocity).toFixed(1)} m/s | Engine ${player.modules.engine.toFixed(0)}% | Gun ${player.modules.gun.toFixed(0)}%`;
   rangefinderEl.textContent = rangeMeters === null ? "Range ---- m" : `Range ${rangeMeters.toFixed(0)} m`;
@@ -607,12 +698,19 @@ function animate() {
 
   if (!player.destroyed && player.modules.engine > 0) {
     player.enginePower += (throttle - player.enginePower) * Math.min(1, dt * 4.2);
-    player.mesh.tank.rotation.y += steer * dt * 0.98 * (0.6 + Math.abs(player.enginePower) * 0.4);
+    let steerInput = steer;
+    if (control.driveAssist && !mode.freeLook && Math.abs(throttle) > 0.1) {
+      const desiredHullYaw = aim.cameraYaw + player.mesh.tank.rotation.y;
+      const hullError = Math.atan2(Math.sin(desiredHullYaw - player.mesh.tank.rotation.y), Math.cos(desiredHullYaw - player.mesh.tank.rotation.y));
+      steerInput += THREE.MathUtils.clamp(hullError * 1.7, -1, 1);
+    }
+    player.mesh.tank.rotation.y += steerInput * dt * 0.98 * (0.6 + Math.abs(player.enginePower) * 0.4);
 
     if (Math.abs(player.enginePower) > 0.02) {
       const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
       player.velocity = player.enginePower * 14.5 * boost;
       player.mesh.tank.position.addScaledVector(dir, player.velocity * dt);
+      resolveTankObstacleCollision(player.mesh.tank.position);
     } else {
       player.velocity = 0;
     }
@@ -624,8 +722,8 @@ function animate() {
 
   if (keys.has("KeyQ")) player.turretYawTarget += dt * 0.92;
   if (keys.has("KeyE")) player.turretYawTarget -= dt * 0.92;
-  if (keys.has("KeyR")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget + dt * 0.44, -0.16, 0.28);
-  if (keys.has("KeyF")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - dt * 0.44, -0.16, 0.28);
+  if (keys.has("PageUp")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget + dt * 0.44, -0.16, 0.28);
+  if (keys.has("PageDown")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - dt * 0.44, -0.16, 0.28);
 
   updateEnemyAI(dt);
   enemy.mesh.tank.position.y = terrainHeightAt(enemy.mesh.tank.position.x, enemy.mesh.tank.position.z);
