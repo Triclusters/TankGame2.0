@@ -241,7 +241,7 @@ function makeState(mesh, isPlayer = false) {
         massTons: 46,
         maxForwardSpeed: 11.4,
         maxReverseSpeed: 4.6,
-        turnRate: THREE.MathUtils.degToRad(27),
+        turnRate: THREE.MathUtils.degToRad(16),
         brakeDecel: 2.8,
       }
     : {
@@ -249,7 +249,7 @@ function makeState(mesh, isPlayer = false) {
         massTons: 52,
         maxForwardSpeed: 9.6,
         maxReverseSpeed: 3.8,
-        turnRate: THREE.MathUtils.degToRad(22),
+        turnRate: THREE.MathUtils.degToRad(14),
         brakeDecel: 2.3,
       };
   return {
@@ -265,7 +265,7 @@ function makeState(mesh, isPlayer = false) {
     turretYawTarget: 0,
     gunPitchTarget: 0,
     velocity: 0,
-    turretTurnSpeed: THREE.MathUtils.degToRad(isPlayer ? 24 : 18),
+    turretTurnSpeed: THREE.MathUtils.degToRad(isPlayer ? 14 : 12),
     gunPitchSpeed: THREE.MathUtils.degToRad(isPlayer ? 12 : 10),
     ai: {
       state: "snipe",
@@ -549,6 +549,10 @@ function updateTankTransform(state, dt) {
   const gunDiff = state.gunPitchTarget - state.mesh.gunPivot.rotation.x;
   const gunStep = THREE.MathUtils.clamp(gunDiff, -state.gunPitchSpeed * dt, state.gunPitchSpeed * dt);
   state.mesh.gunPivot.rotation.x += gunStep;
+
+  if (state.isPlayer && !mode.freeLook) {
+    aim.cameraYaw = state.mesh.tank.rotation.y + state.mesh.turretPivot.rotation.y;
+  }
 }
 
 function wrapAngle(angle) {
@@ -584,18 +588,18 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     player.ammoType = player.ammoType === "AP" ? "HE" : "AP";
   }
-  if (e.code === "KeyX") measureRange();
-  if (e.code === "KeyR") restartBattle();
+  if (e.code === "KeyR") measureRange();
+  if (e.code === "KeyP") restartBattle();
   if (e.code === "KeyV") setMode(mode.view === "third" ? "gunner" : "third");
   if (e.code === "KeyB") setMode(mode.view === "binoc" ? "third" : "binoc");
-  if (e.code === "KeyC") mode.freeLook = true;
+  if (e.code === "KeyC" || e.code === "AltLeft") mode.freeLook = true;
   if (e.code === "KeyG") control.stabilizer = !control.stabilizer;
   if (e.code === "KeyH") control.driveAssist = !control.driveAssist;
 });
 
 window.addEventListener("keyup", (e) => {
   keys.delete(e.code);
-  if (e.code === "KeyC") mode.freeLook = false;
+  if (e.code === "KeyC" || e.code === "AltLeft") mode.freeLook = false;
 });
 
 window.addEventListener("wheel", (e) => {
@@ -647,19 +651,16 @@ function updateCamera(dt) {
   }
 
   const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 2.8, 0));
-  const distance = THREE.MathUtils.lerp(4.5, 14.0, aim.zoomStep);
-  const orbitYaw = aim.cameraYaw;
-  const offset = new THREE.Vector3(0, 2.8, -distance)
-    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
-    .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
-  const targetCamPos = pivot.clone().add(offset);
+  const orbitYaw = mode.freeLook ? aim.cameraYaw : player.mesh.tank.rotation.y + player.mesh.turretPivot.rotation.y;
+  const velocityOffset = THREE.MathUtils.clamp(-player.velocity * 0.28, -1.6, 1.6);
+  const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
+  const targetCamPos = pivot.clone().addScaledVector(forward, velocityOffset);
   targetCamPos.y = Math.max(targetCamPos.y, terrainHeightAt(targetCamPos.x, targetCamPos.z) + 0.75);
   camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * control.cameraLag));
   const viewDir = new THREE.Vector3(0, 0, 1)
-    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch * 0.75)
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
     .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
-  const thirdPersonDir = mode.freeLook ? viewDir : gunForward;
-  camera.lookAt(camera.position.clone().add(thirdPersonDir.multiplyScalar(70)));
+  camera.lookAt(camera.position.clone().add(viewDir.multiplyScalar(70)));
 }
 
 function updateShells(dt) {
@@ -700,10 +701,10 @@ function updateFlashes(dt) {
 
 function updateHUD() {
   const bearing = ((THREE.MathUtils.radToDeg(player.mesh.tank.rotation.y) % 360) + 360) % 360;
-  hud.innerHTML = `<strong>Steel Fury (Prototype Renderer)</strong><br/>Mode: ${mode.view.toUpperCase()} | Ammo: ${player.ammoType} | Reload: ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} | Enemy HP ${enemy.hp.toFixed(0)} | AI ${enemy.ai.state.toUpperCase()}<br/>Vehicle ${player.vehicle.horsepower}hp / ${player.vehicle.massTons}t | Turret ${THREE.MathUtils.radToDeg(player.turretTurnSpeed).toFixed(0)}°/s | WT-style: RMB gunner hold, C freelook hold, Wheel zoom, G stabilizer ${control.stabilizer ? "ON" : "OFF"}, H drive assist ${control.driveAssist ? "ON" : "OFF"}`;
-  compass.textContent = `Bearing ${bearing.toFixed(0)}°`;
-  status.textContent = `Speed ${Math.abs(player.velocity).toFixed(1)} m/s | Engine ${player.modules.engine.toFixed(0)}% | Gun ${player.modules.gun.toFixed(0)}%`;
-  rangefinderEl.textContent = rangeMeters === null ? "Range ---- m" : `Range ${rangeMeters.toFixed(0)} m`;
+  hud.innerHTML = `<strong>M4A2 · STEEL FURY</strong><br/>Mode ${mode.view.toUpperCase()} · Ammo ${player.ammoType} · Reload ${player.reload <= 0 ? "READY" : `${player.reload.toFixed(1)}s`}<br/>HP ${player.hp.toFixed(0)} · Enemy ${enemy.hp.toFixed(0)} · AI ${enemy.ai.state.toUpperCase()}`;
+  compass.textContent = `Bearing ${bearing.toFixed(0)}° · Turret ${THREE.MathUtils.radToDeg(player.mesh.turretPivot.rotation.y).toFixed(0)}°`;
+  status.textContent = `SPD ${Math.abs(player.velocity).toFixed(1)} m/s | ENG ${player.modules.engine.toFixed(0)}% | GUN ${player.modules.gun.toFixed(0)}% | STAB ${control.stabilizer ? "ON" : "OFF"}`;
+  rangefinderEl.textContent = rangeMeters === null ? "LASER ---- m" : `LASER ${rangeMeters.toFixed(0)} m`;
   const events = document.getElementById("events");
   events.textContent = notification;
 }
@@ -718,14 +719,13 @@ function animate() {
   // Player movement.
   const steer = (keys.has("KeyA") ? 1 : 0) + (keys.has("KeyD") ? -1 : 0);
   const throttle = (keys.has("KeyW") ? 1 : 0) + (keys.has("KeyS") ? -1 : 0);
-  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 1.05 : 1;
 
   if (!player.destroyed && player.modules.engine > 0) {
     const hpPerTon = player.vehicle.horsepower / player.vehicle.massTons;
     const acceleration = THREE.MathUtils.clamp(hpPerTon * 0.11, 1.2, 3.0);
     player.enginePower += (throttle - player.enginePower) * Math.min(1, dt * 2.2);
     const targetSpeed = player.enginePower >= 0
-      ? player.enginePower * player.vehicle.maxForwardSpeed * boost
+      ? player.enginePower * player.vehicle.maxForwardSpeed
       : player.enginePower * player.vehicle.maxReverseSpeed;
     const speedDelta = targetSpeed - player.velocity;
     const decel = Math.abs(targetSpeed) < Math.abs(player.velocity) ? player.vehicle.brakeDecel : acceleration;
@@ -742,7 +742,8 @@ function animate() {
       steerInput += THREE.MathUtils.clamp(hullError * 1.7, -1, 1);
     }
     const speedFactor = THREE.MathUtils.clamp(Math.abs(player.velocity) / player.vehicle.maxForwardSpeed, 0, 1);
-    player.mesh.tank.rotation.y += steerInput * dt * player.vehicle.turnRate * (0.45 + speedFactor * 0.55);
+    const turnAuthority = THREE.MathUtils.lerp(1.1, 0.32, speedFactor);
+    player.mesh.tank.rotation.y += steerInput * dt * player.vehicle.turnRate * turnAuthority;
 
     if (Math.abs(player.velocity) > 0.02) {
       const dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
@@ -756,17 +757,6 @@ function animate() {
   player.mesh.tank.position.x = THREE.MathUtils.clamp(player.mesh.tank.position.x, -FIELD_SIZE * 0.45, FIELD_SIZE * 0.45);
   player.mesh.tank.position.z = THREE.MathUtils.clamp(player.mesh.tank.position.z, -FIELD_SIZE * 0.45, FIELD_SIZE * 0.45);
   player.mesh.tank.position.y = terrainHeightAt(player.mesh.tank.position.x, player.mesh.tank.position.z);
-
-  if (keys.has("KeyQ")) {
-    player.turretYawTarget += dt * 0.92;
-    aim.cameraYaw += dt * 0.92;
-  }
-  if (keys.has("KeyE")) {
-    player.turretYawTarget -= dt * 0.92;
-    aim.cameraYaw -= dt * 0.92;
-  }
-  if (keys.has("PageUp")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget + dt * 0.44, -0.16, 0.28);
-  if (keys.has("PageDown")) player.gunPitchTarget = THREE.MathUtils.clamp(player.gunPitchTarget - dt * 0.44, -0.16, 0.28);
 
   updateEnemyAI(dt);
   enemy.mesh.tank.position.y = terrainHeightAt(enemy.mesh.tank.position.x, enemy.mesh.tank.position.z);
