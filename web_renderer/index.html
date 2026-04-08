@@ -6,13 +6,27 @@
     <title>TankGame2.0 Tactical Renderer</title>
     <style>
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1216; color: #e2ebf5; font-family: Inter, system-ui, sans-serif; }
-      #hud, #compass, #status, #rangefinder, #events { position: fixed; z-index: 10; background: rgba(7,11,17,.58); border: 1px solid rgba(180,200,220,.23); border-radius: 8px; padding: 8px 11px; backdrop-filter: blur(3px); }
-      #hud { top: 12px; left: 12px; font-size: 13px; line-height: 1.35; min-width: 320px; }
-      #compass { top: 12px; right: 12px; font-size: 13px; }
-      #status { bottom: 12px; left: 12px; font-size: 13px; }
-      #rangefinder { bottom: 12px; right: 12px; font-size: 13px; }
-      #events { top: 86px; right: 12px; font-size: 12px; max-width: 260px; color: #ffd5a9; }
-      #controls { position: fixed; right: 12px; bottom: 54px; font-size: 12px; line-height: 1.4; background: rgba(7,11,17,.58); border: 1px solid rgba(180,200,220,.23); border-radius: 8px; padding: 8px 11px; z-index: 10; }
+      #hud, #compass, #status, #rangefinder, #events, #controls { position: fixed; z-index: 10; border-radius: 8px; border: 1px solid rgba(166,191,217,.28); background: linear-gradient(180deg, rgba(12,20,30,.78), rgba(5,10,17,.72)); backdrop-filter: blur(3px); box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+      #tickets { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 12; width: min(560px, 76vw); display: grid; gap: 6px; }
+      #ticket-bars { height: 10px; border-radius: 999px; background: rgba(22,30,42,.9); overflow: hidden; display: flex; border: 1px solid rgba(194,215,234,.2); }
+      #ticket-bars .blue { width: 56%; background: linear-gradient(90deg, #7fc5ff, #4d9de4); }
+      #ticket-bars .red { width: 44%; background: linear-gradient(90deg, #d26767, #ad3333); }
+      #capture-points { text-align: center; font-size: 12px; letter-spacing: .08em; color: rgba(227,238,248,.9); }
+      #hud { top: 12px; left: 12px; font-size: 12px; line-height: 1.35; min-width: 250px; padding: 8px 10px; }
+      #compass { top: 12px; right: 12px; font-size: 12px; padding: 8px 10px; }
+      #status { bottom: 14px; left: 12px; font-size: 12px; min-width: 220px; padding: 8px 10px; }
+      #rangefinder { right: 12px; bottom: 150px; font-size: 12px; padding: 7px 10px; }
+      #events { top: 98px; right: 12px; font-size: 12px; width: 280px; min-height: 56px; color: #ffd5a9; padding: 8px 10px; }
+      #controls { right: 12px; bottom: 12px; width: 280px; font-size: 11px; line-height: 1.35; padding: 8px 10px; color: rgba(224,238,250,.95); }
+      #actionbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 10; display: flex; gap: 6px; padding: 6px; border-radius: 8px; border: 1px solid rgba(170,194,216,.3); background: linear-gradient(180deg, rgba(8,16,25,.84), rgba(5,9,16,.78)); }
+      #actionbar .slot { width: 36px; height: 36px; border-radius: 6px; border: 1px solid rgba(188,211,232,.26); display: grid; place-items: center; font-size: 11px; color: rgba(230,242,255,.9); background: rgba(20,33,48,.78); }
+      #minimap { position: fixed; right: 12px; bottom: 12px; width: 180px; height: 180px; border-radius: 8px; border: 1px solid rgba(166,191,217,.34); background:
+        radial-gradient(circle at 52% 42%, rgba(57,95,64,.8), rgba(34,58,40,.94)),
+        linear-gradient(45deg, rgba(255,255,255,.08) 0 1px, transparent 1px 16px),
+        linear-gradient(-45deg, rgba(255,255,255,.08) 0 1px, transparent 1px 16px);
+        background-size: auto, 16px 16px, 16px 16px;
+        z-index: 9; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+      #minimap::before { content: "N"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); font-size: 11px; color: rgba(230,242,255,.92); }
       #hitcam { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: 360px; background: rgba(5, 10, 16, .82); border: 1px solid rgba(255, 192, 132, .42); border-radius: 8px; padding: 8px; z-index: 11; display: none; }
       #hitcam h4 { margin: 0 0 6px 0; color: #ffd7a7; font-size: 12px; letter-spacing: .06em; }
       #hitcam canvas { width: 100%; height: 120px; display: block; border: 1px solid rgba(200, 220, 240, .2); background: rgba(16, 24, 34, .75); }
@@ -26,18 +40,30 @@
     </style>
   </head>
   <body>
+    <div id="tickets">
+      <div id="ticket-bars"><div class="blue"></div><div class="red"></div></div>
+      <div id="capture-points">A ◇ B ◆ C</div>
+    </div>
     <div id="hud"><strong>Steel Fury (Prototype Renderer)</strong><br />Loading...</div>
     <div id="compass">Bearing 000°</div>
     <div id="status">Speed 0.0 m/s</div>
     <div id="rangefinder">Range ---- m</div>
     <div id="events">Battle started.</div>
     <div id="controls">
-      LMB / Space fire · RMB hold zoom · X rangefinder<br />
-      W/S throttle · A/D steer · Shift boost<br />
-      Mouse aim · Q/E turret trim · R/F elevation trim<br />
-      V gunner sight · B binocular · C freelook<br />
-      1 AP · 2 HE · Tab cycle · R restart
+      LMB / Space fire · RMB hold zoom · R rangefinder<br />
+      W/S throttle/reverse · A/D steer (neutral steer at low speed)<br />
+      Mouse aim (turret & gun) · no keyboard gun control<br />
+      V gunner sight · B binocular · C or Left Alt freelook<br />
+      1 AP · 2 HE · Tab cycle · P restart
     </div>
+    <div id="actionbar">
+      <div class="slot">1</div>
+      <div class="slot">2</div>
+      <div class="slot">3</div>
+      <div class="slot">4</div>
+      <div class="slot">5</div>
+    </div>
+    <div id="minimap"></div>
     <div id="hitcam">
       <h4>HIT CAMERA</h4>
       <canvas id="hitcam-canvas" width="340" height="120"></canvas>
