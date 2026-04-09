@@ -2,6 +2,10 @@ import * as THREE from "https://unpkg.com/three@0.165.0/build/three.module.js";
 
 const FIELD_SIZE = 280;
 const GRAVITY = 9.81;
+const FLAK_88_MUZZLE_VELOCITY = {
+  AP: 820,
+  HE: 840,
+};
 const COVER_POINTS = [
   new THREE.Vector3(-35, 0, 10),
   new THREE.Vector3(10, 0, -25),
@@ -258,6 +262,7 @@ function makeState(mesh, isPlayer = false) {
     hp: 100,
     modules: { engine: 100, gun: 100, turret: 100, crew: 100 },
     destroyed: false,
+    burning: false,
     reload: 0,
     ammoType: "AP",
     enginePower: 0,
@@ -282,6 +287,7 @@ const enemy = makeState(enemyMesh, false);
 
 const shells = [];
 const flashes = [];
+const burnEffects = [];
 
 const keys = new Set();
 const hud = document.getElementById("hud");
@@ -400,6 +406,63 @@ function spawnFlash(position) {
   scene.add(flash);
 }
 
+function createBurningWreck(target) {
+  if (target.burning) return;
+  target.burning = true;
+  const root = new THREE.Group();
+  root.userData = { state: target, particles: [] };
+  scene.add(root);
+  burnEffects.push(root);
+}
+
+function updateBurningWrecks(dt) {
+  for (let i = burnEffects.length - 1; i >= 0; i -= 1) {
+    const effect = burnEffects[i];
+    const state = effect.userData.state;
+    if (!state) continue;
+
+    const basePos = state.mesh.tank.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+    effect.position.copy(basePos);
+
+    const particles = effect.userData.particles;
+    const spawnCount = Math.max(1, Math.floor(22 * dt));
+    for (let s = 0; s < spawnCount; s += 1) {
+      const flame = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff7b2f, transparent: true, opacity: 0.9 })
+      );
+      flame.position.set(
+        THREE.MathUtils.randFloatSpread(1.6),
+        THREE.MathUtils.randFloat(0.0, 0.6),
+        THREE.MathUtils.randFloatSpread(1.6)
+      );
+      flame.userData.vel = new THREE.Vector3(
+        THREE.MathUtils.randFloatSpread(0.4),
+        THREE.MathUtils.randFloat(1.2, 2.8),
+        THREE.MathUtils.randFloatSpread(0.4)
+      );
+      flame.userData.life = THREE.MathUtils.randFloat(0.35, 0.8);
+      flame.userData.maxLife = flame.userData.life;
+      particles.push(flame);
+      effect.add(flame);
+    }
+
+    for (let p = particles.length - 1; p >= 0; p -= 1) {
+      const flame = particles[p];
+      flame.userData.life -= dt;
+      flame.position.addScaledVector(flame.userData.vel, dt);
+      flame.scale.multiplyScalar(0.96);
+      flame.material.opacity = THREE.MathUtils.clamp(flame.userData.life / flame.userData.maxLife, 0, 1);
+      if (flame.userData.life <= 0) {
+        effect.remove(flame);
+        flame.geometry.dispose();
+        flame.material.dispose();
+        particles.splice(p, 1);
+      }
+    }
+  }
+}
+
 function fireMainGun(shooter, target, forcedError = 0) {
   if (shooter.destroyed || shooter.reload > 0 || shooter.modules.gun <= 0) return;
   shooter.reload = shooter.ammoType === "HE" ? 1.35 : 0.95;
@@ -420,7 +483,7 @@ function fireMainGun(shooter, target, forcedError = 0) {
   );
   shell.position.copy(muzzlePosition(shooter));
   shell.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  shell.userData.velocity = dir.multiplyScalar(shooter.ammoType === "HE" ? 82 : 100);
+  shell.userData.velocity = dir.multiplyScalar(FLAK_88_MUZZLE_VELOCITY[shooter.ammoType] || FLAK_88_MUZZLE_VELOCITY.AP);
   shell.userData.gravity = shooter.ammoType === "HE" ? GRAVITY * 1.08 : GRAVITY;
   shell.userData.life = 8;
   shell.userData.shooter = shooter;
@@ -444,6 +507,8 @@ function restartBattle() {
   enemy.destroyed = false;
   player.reload = 0;
   enemy.reload = 0;
+  player.burning = false;
+  enemy.burning = false;
   player.mesh.tank.position.set(-20, terrainHeightAt(-20, -20), -20);
   enemy.mesh.tank.position.set(48, terrainHeightAt(48, 34), 34);
   player.mesh.tank.rotation.set(0, 0, 0);
@@ -452,6 +517,15 @@ function restartBattle() {
   hitCam.active = false;
   hitCamEl.style.display = "none";
   hitCamText.textContent = "";
+  for (let i = burnEffects.length - 1; i >= 0; i -= 1) {
+    const effect = burnEffects[i];
+    effect.userData.particles.forEach((flame) => {
+      flame.geometry.dispose();
+      flame.material.dispose();
+    });
+    scene.remove(effect);
+    burnEffects.splice(i, 1);
+  }
 }
 
 function nearestCover(fromPosition) {
@@ -629,7 +703,11 @@ function updateCamera(dt) {
   const gunForward = new THREE.Vector3(0, 0, 1).applyQuaternion(
     player.mesh.gunPivot.getWorldQuaternion(new THREE.Quaternion())
   );
-  const fovTarget = mode.holdZoom ? (mode.view === "gunner" ? 20 : 30) : (mode.view === "binoc" ? 24 : mode.view === "gunner" ? 40 : 72);
+  const scopedFov = THREE.MathUtils.lerp(16, 40, aim.zoomStep);
+  const binoFov = THREE.MathUtils.lerp(12, 24, aim.zoomStep);
+  const fovTarget = mode.holdZoom
+    ? (mode.view === "gunner" ? THREE.MathUtils.lerp(8, 20, aim.zoomStep) : 30)
+    : (mode.view === "binoc" ? binoFov : mode.view === "gunner" ? scopedFov : 72);
   camera.fov += (fovTarget - camera.fov) * Math.min(1, dt * 10);
   camera.updateProjectionMatrix();
 
@@ -652,11 +730,14 @@ function updateCamera(dt) {
 
   const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 2.8, 0));
   const orbitYaw = mode.freeLook ? aim.cameraYaw : player.mesh.tank.rotation.y + player.mesh.turretPivot.rotation.y;
-  const velocityOffset = THREE.MathUtils.clamp(-player.velocity * 0.28, -1.6, 1.6);
+  const velocityOffset = THREE.MathUtils.clamp(-player.velocity * 0.35, -2.8, 2.8);
   const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
-  const targetCamPos = pivot.clone().addScaledVector(forward, velocityOffset);
+  const speedRatio = THREE.MathUtils.clamp(Math.abs(player.velocity) / player.vehicle.maxForwardSpeed, 0, 1);
+  const leadDistance = THREE.MathUtils.lerp(0.3, 2.8, speedRatio);
+  const targetCamPos = pivot.clone().addScaledVector(forward, velocityOffset + leadDistance);
   targetCamPos.y = Math.max(targetCamPos.y, terrainHeightAt(targetCamPos.x, targetCamPos.z) + 0.75);
-  camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * control.cameraLag));
+  const adaptiveLag = THREE.MathUtils.lerp(control.cameraLag, control.cameraLag * 1.9, speedRatio);
+  camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * adaptiveLag));
   const viewDir = new THREE.Vector3(0, 0, 1)
     .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
     .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
@@ -675,6 +756,7 @@ function updateShells(dt) {
     if (!target.destroyed && shell.position.distanceTo(target.mesh.tank.position.clone().add(new THREE.Vector3(0, 1.6, 0))) < 2.4) {
       const report = applyDamage(target, { ammoType: shell.userData.ammoType });
       if (shell.userData.shooter?.isPlayer && !target.isPlayer) showHitCam(report);
+      if (report.destroyed) createBurningWreck(target);
       scene.remove(shell);
       shells.splice(i, 1);
       continue;
@@ -765,6 +847,7 @@ function animate() {
   updateCamera(dt);
   updateShells(dt);
   updateFlashes(dt);
+  updateBurningWrecks(dt);
   updateHUD();
   if (hitCam.active) {
     hitCam.ttl -= dt;
