@@ -278,6 +278,11 @@ function makeState(mesh, isPlayer = false) {
       fireTimer: 0,
       destination: null,
       aimError: 0.05,
+      underFireTimer: 0,
+      lastSeenPlayerPos: null,
+      lastPosition: mesh.tank.position.clone(),
+      stuckTimer: 0,
+      repathTimer: 0,
     },
   };
 }
@@ -331,6 +336,11 @@ function applyDamage(target, shell) {
   const moduleBefore = target.modules[hitModule];
   target.modules[hitModule] = Math.max(0, target.modules[hitModule] - moduleDamage);
   notification = `${target.isPlayer ? "You were hit" : "Enemy hit"}: ${hitModule.toUpperCase()} -${moduleDamage.toFixed(0)}`;
+
+  if (!target.isPlayer && shell.shooter?.isPlayer) {
+    target.ai.underFireTimer = 3.5;
+    target.ai.lastSeenPlayerPos = shell.shooter.mesh.tank.position.clone();
+  }
 
   if (target.modules.crew <= 0 || target.hp <= 0) target.destroyed = true;
   if (target.destroyed) notification = target.isPlayer ? "Player knocked out." : "Target destroyed.";
@@ -541,6 +551,42 @@ function nearestCover(fromPosition) {
   return best.clone();
 }
 
+function lineSegmentClear2D(from, to) {
+  const segment = to.clone().sub(from);
+  const segLenSq = Math.max(segment.lengthSq(), 0.0001);
+  for (const obstacle of obstacles) {
+    const center = new THREE.Vector3(obstacle.x, 0, obstacle.z);
+    const toCenter = center.sub(from);
+    const t = THREE.MathUtils.clamp(toCenter.dot(segment) / segLenSq, 0, 1);
+    const nearest = from.clone().addScaledVector(segment, t);
+    const dx = nearest.x - obstacle.x;
+    const dz = nearest.z - obstacle.z;
+    const clearance = obstacle.radius + 0.6;
+    if ((dx * dx) + (dz * dz) < clearance * clearance) return false;
+  }
+  return true;
+}
+
+function scoreCoverPoint(point, fromPosition, playerPosition) {
+  const toPoint = point.distanceTo(fromPosition);
+  const fromPlayer = point.distanceTo(playerPosition);
+  const hasMask = lineSegmentClear2D(playerPosition, point) ? 0 : 1;
+  return (hasMask * 70) + THREE.MathUtils.clamp(fromPlayer * 0.25, 0, 26) - THREE.MathUtils.clamp(toPoint * 0.9, 0, 40);
+}
+
+function bestCoverPoint(fromPosition, playerPosition) {
+  let bestPoint = nearestCover(fromPosition);
+  let bestScore = -Infinity;
+  for (const point of COVER_POINTS) {
+    const score = scoreCoverPoint(point, fromPosition, playerPosition);
+    if (score > bestScore) {
+      bestScore = score;
+      bestPoint = point;
+    }
+  }
+  return bestPoint.clone();
+}
+
 function resolveTankObstacleCollision(position, tankRadius = 2.3) {
   for (const obstacle of obstacles) {
     const dx = position.x - obstacle.x;
@@ -558,25 +604,57 @@ function resolveTankObstacleCollision(position, tankRadius = 2.3) {
 
 function updateEnemyAI(dt) {
   if (enemy.destroyed) return;
-  const dist = enemy.mesh.tank.position.distanceTo(player.mesh.tank.position);
+  const enemyPos = enemy.mesh.tank.position;
+  const playerPos = player.mesh.tank.position;
+  const dist = enemyPos.distanceTo(playerPos);
   enemy.ai.decisionCooldown -= dt;
   enemy.ai.fireTimer -= dt;
+  enemy.ai.repathTimer -= dt;
+  enemy.ai.underFireTimer = Math.max(0, enemy.ai.underFireTimer - dt);
+
+  const movedDist = enemyPos.distanceTo(enemy.ai.lastPosition);
+  if (movedDist < 0.15 && enemy.ai.state !== "snipe") {
+    enemy.ai.stuckTimer += dt;
+  } else {
+    enemy.ai.stuckTimer = Math.max(0, enemy.ai.stuckTimer - dt * 1.5);
+  }
+  enemy.ai.lastPosition.copy(enemyPos);
+
+  if (lineSegmentClear2D(enemyPos, playerPos)) {
+    enemy.ai.lastSeenPlayerPos = playerPos.clone();
+  }
+
+  const lowHp = enemy.hp < 45 || enemy.modules.engine < 35;
+  const underPressure = enemy.ai.underFireTimer > 0.1 || enemy.modules.turret < 55 || enemy.modules.gun < 60;
+  const needRepath = enemy.ai.stuckTimer > 1.1 || (enemy.ai.repathTimer <= 0 && enemy.ai.state === "cover" && movedDist < 0.05);
 
   if (enemy.ai.decisionCooldown <= 0) {
     enemy.ai.decisionCooldown = THREE.MathUtils.randFloat(1.2, 2.0);
 
-    if (enemy.hp < 45 || enemy.modules.engine < 35) {
+    if (lowHp || underPressure) {
       enemy.ai.state = "cover";
-      enemy.ai.destination = nearestCover(enemy.mesh.tank.position);
-      enemy.ai.aimError = 0.085;
+      enemy.ai.destination = bestCoverPoint(enemyPos, playerPos);
+      enemy.ai.aimError = underPressure ? 0.1 : 0.085;
     } else if (dist > 70) {
       enemy.ai.state = "push";
-      enemy.ai.destination = player.mesh.tank.position.clone().add(new THREE.Vector3(THREE.MathUtils.randFloat(-8, 8), 0, THREE.MathUtils.randFloat(-8, 8)));
-      enemy.ai.aimError = 0.08;
+      const trackedPos = enemy.ai.lastSeenPlayerPos || playerPos;
+      enemy.ai.destination = trackedPos.clone().add(new THREE.Vector3(THREE.MathUtils.randFloat(-16, 16), 0, THREE.MathUtils.randFloat(-16, 16)));
+      enemy.ai.aimError = dist > 95 ? 0.09 : 0.07;
     } else {
       enemy.ai.state = "snipe";
-      enemy.ai.destination = enemy.mesh.tank.position.clone();
-      enemy.ai.aimError = 0.04;
+      enemy.ai.destination = enemyPos.clone();
+      enemy.ai.aimError = dist < 45 ? 0.03 : 0.05;
+    }
+  }
+
+  if (needRepath) {
+    enemy.ai.stuckTimer = 0;
+    enemy.ai.repathTimer = THREE.MathUtils.randFloat(1.2, 2.2);
+    if (enemy.ai.state === "cover") {
+      enemy.ai.destination = bestCoverPoint(enemyPos, playerPos);
+    } else {
+      const trackedPos = enemy.ai.lastSeenPlayerPos || playerPos;
+      enemy.ai.destination = trackedPos.clone().add(new THREE.Vector3(THREE.MathUtils.randFloat(-10, 10), 0, THREE.MathUtils.randFloat(-10, 10)));
     }
   }
 
@@ -599,16 +677,20 @@ function updateEnemyAI(dt) {
   }
 
   // Aim with imperfect prediction.
-  const toPlayer = player.mesh.tank.position.clone().sub(enemy.mesh.tank.position);
-  const predicted = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 0, player.velocity * 0.15));
-  const toPredicted = predicted.sub(enemy.mesh.tank.position);
+  const toPlayer = playerPos.clone().sub(enemyPos);
+  const playerForward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
+  const predicted = playerPos.clone().addScaledVector(playerForward, player.velocity * 0.28);
+  const toPredicted = predicted.sub(enemyPos);
   const desiredTurret = Math.atan2(toPredicted.x, toPredicted.z) - enemy.mesh.tank.rotation.y;
   enemy.turretYawTarget = desiredTurret;
   enemy.gunPitchTarget = THREE.MathUtils.clamp(0.03 + toPlayer.length() * 0.0004, -0.1, 0.16);
 
-  if (enemy.ai.fireTimer <= 0 && dist < 135 && enemy.modules.gun > 0) {
-    enemy.ai.fireTimer = THREE.MathUtils.randFloat(2.1, 3.6);
-    fireMainGun(enemy, player, enemy.ai.aimError);
+  const turretError = Math.abs(wrapAngle(enemy.turretYawTarget - enemy.mesh.turretPivot.rotation.y));
+  const canShoot = turretError < THREE.MathUtils.degToRad(4.5);
+  const hasLOS = lineSegmentClear2D(enemyPos, playerPos);
+  if (enemy.ai.fireTimer <= 0 && dist < 135 && enemy.modules.gun > 0 && canShoot && hasLOS) {
+    enemy.ai.fireTimer = THREE.MathUtils.randFloat(1.8, 3.4);
+    fireMainGun(enemy, player, enemy.ai.aimError + (enemy.ai.underFireTimer > 0 ? 0.02 : 0));
   }
 }
 
@@ -754,7 +836,7 @@ function updateShells(dt) {
 
     const target = shell.userData.target;
     if (!target.destroyed && shell.position.distanceTo(target.mesh.tank.position.clone().add(new THREE.Vector3(0, 1.6, 0))) < 2.4) {
-      const report = applyDamage(target, { ammoType: shell.userData.ammoType });
+      const report = applyDamage(target, { ammoType: shell.userData.ammoType, shooter: shell.userData.shooter });
       if (shell.userData.shooter?.isPlayer && !target.isPlayer) showHitCam(report);
       if (report.destroyed) createBurningWreck(target);
       scene.remove(shell);
