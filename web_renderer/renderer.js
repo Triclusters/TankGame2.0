@@ -6,6 +6,56 @@ const FLAK_88_MUZZLE_VELOCITY = {
   AP: 820,
   HE: 840,
 };
+const SHELL_PEN_MM = {
+  AP: [
+    [0, 185],
+    [500, 170],
+    [1000, 150],
+    [1500, 130],
+    [2000, 115],
+  ],
+  HE: [
+    [0, 38],
+    [500, 32],
+    [1000, 26],
+    [1500, 22],
+    [2000, 18],
+  ],
+};
+const VEHICLE_PROFILES = {
+  M4A2: {
+    armor: {
+      hull_front: { thickness: 63, slopeDeg: 47, normal: new THREE.Vector3(0, 0, 1) },
+      hull_side: { thickness: 38, slopeDeg: 0, normal: new THREE.Vector3(1, 0, 0) },
+      hull_rear: { thickness: 38, slopeDeg: 8, normal: new THREE.Vector3(0, 0, -1) },
+      turret_front: { thickness: 76, slopeDeg: 10, normal: new THREE.Vector3(0, 0, 1) },
+      turret_side: { thickness: 50, slopeDeg: 0, normal: new THREE.Vector3(1, 0, 0) },
+      turret_rear: { thickness: 50, slopeDeg: 0, normal: new THREE.Vector3(0, 0, -1) },
+    },
+    modules: [
+      { key: "engine", center: new THREE.Vector3(0, 1.1, -2.2), radius: 1.0 },
+      { key: "crew", center: new THREE.Vector3(0, 1.45, -0.2), radius: 0.95 },
+      { key: "turret", center: new THREE.Vector3(0, 2.0, 0), radius: 1.0 },
+      { key: "gun", center: new THREE.Vector3(0, 2.1, 1.55), radius: 0.62 },
+    ],
+  },
+  PANTHER_D: {
+    armor: {
+      hull_front: { thickness: 80, slopeDeg: 55, normal: new THREE.Vector3(0, 0, 1) },
+      hull_side: { thickness: 45, slopeDeg: 0, normal: new THREE.Vector3(1, 0, 0) },
+      hull_rear: { thickness: 40, slopeDeg: 8, normal: new THREE.Vector3(0, 0, -1) },
+      turret_front: { thickness: 100, slopeDeg: 12, normal: new THREE.Vector3(0, 0, 1) },
+      turret_side: { thickness: 45, slopeDeg: 0, normal: new THREE.Vector3(1, 0, 0) },
+      turret_rear: { thickness: 45, slopeDeg: 0, normal: new THREE.Vector3(0, 0, -1) },
+    },
+    modules: [
+      { key: "engine", center: new THREE.Vector3(0, 1.1, -2.25), radius: 1.0 },
+      { key: "crew", center: new THREE.Vector3(0, 1.45, -0.15), radius: 1.0 },
+      { key: "turret", center: new THREE.Vector3(0, 2.0, 0), radius: 1.05 },
+      { key: "gun", center: new THREE.Vector3(0, 2.05, 1.7), radius: 0.65 },
+    ],
+  },
+};
 const COVER_POINTS = [
   new THREE.Vector3(-35, 0, 10),
   new THREE.Vector3(10, 0, -25),
@@ -238,7 +288,7 @@ enemyMesh.tank.position.set(48, 0, 34);
 enemyMesh.tank.rotation.y = THREE.MathUtils.degToRad(210);
 scene.add(enemyMesh.tank);
 
-function makeState(mesh, isPlayer = false) {
+function makeState(mesh, isPlayer = false, vehicleType = "M4A2") {
   const vehicle = isPlayer
     ? {
         horsepower: 850,
@@ -263,6 +313,7 @@ function makeState(mesh, isPlayer = false) {
     modules: { engine: 100, gun: 100, turret: 100, crew: 100 },
     destroyed: false,
     burning: false,
+    vehicleType,
     reload: 0,
     ammoType: "AP",
     enginePower: 0,
@@ -287,8 +338,8 @@ function makeState(mesh, isPlayer = false) {
   };
 }
 
-const player = makeState(playerMesh, true);
-const enemy = makeState(enemyMesh, false);
+const player = makeState(playerMesh, true, "M4A2");
+const enemy = makeState(enemyMesh, false, "PANTHER_D");
 
 const shells = [];
 const flashes = [];
@@ -314,6 +365,7 @@ const raycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2(0, 0);
 const terrainPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const cursorAimPoint = new THREE.Vector3();
+let dragLook = false;
 
 function terrainHeightAt(x, z) {
   return Math.sin(x * 0.045) * 1.2 + Math.cos(z * 0.04) * 1.15 + Math.sin((x + z) * 0.09) * 0.45;
@@ -329,17 +381,90 @@ function muzzlePosition(state) {
   return pos.add(new THREE.Vector3(0, 0, 4.85).applyQuaternion(q));
 }
 
+function penAtDistance(ammoType, distanceMeters) {
+  const table = SHELL_PEN_MM[ammoType] || SHELL_PEN_MM.AP;
+  const d = THREE.MathUtils.clamp(distanceMeters, table[0][0], table[table.length - 1][0]);
+  for (let i = 0; i < table.length - 1; i += 1) {
+    const [d0, p0] = table[i];
+    const [d1, p1] = table[i + 1];
+    if (d >= d0 && d <= d1) {
+      const t = (d - d0) / Math.max(0.0001, d1 - d0);
+      return THREE.MathUtils.lerp(p0, p1, t);
+    }
+  }
+  return table[table.length - 1][1];
+}
+
+function classifyArmorZone(target, impactPointWorld, incomingDirWorld) {
+  const profile = VEHICLE_PROFILES[target.vehicleType] || VEHICLE_PROFILES.M4A2;
+  const impactLocal = target.mesh.tank.worldToLocal(impactPointWorld.clone());
+  const localIncoming = incomingDirWorld.clone().applyQuaternion(target.mesh.tank.quaternion.clone().invert()).normalize();
+  const shooterLocal = localIncoming.clone().multiplyScalar(-1);
+  const sideBias = Math.abs(shooterLocal.x) > Math.abs(shooterLocal.z);
+  const rear = shooterLocal.z < -0.25 && !sideBias;
+  const front = shooterLocal.z > 0.25 && !sideBias;
+  const turretHit = impactLocal.y > 1.72;
+  let zone = "hull_front";
+  if (turretHit) {
+    if (rear) zone = "turret_rear";
+    else if (front) zone = "turret_front";
+    else zone = "turret_side";
+  } else if (rear) zone = "hull_rear";
+  else if (front) zone = "hull_front";
+  else zone = "hull_side";
+  return { zone, armor: profile.armor[zone], impactLocal, localIncoming };
+}
+
+function closestModuleOnRay(target, impactLocal, localIncoming, penetrated) {
+  const profile = VEHICLE_PROFILES[target.vehicleType] || VEHICLE_PROFILES.M4A2;
+  const rayStart = impactLocal.clone().addScaledVector(localIncoming, penetrated ? 0.18 : 0.05);
+  const maxDist = penetrated ? 4.8 : 1.6;
+  const rayEnd = rayStart.clone().addScaledVector(localIncoming, maxDist);
+  let best = null;
+  let bestDist = Infinity;
+  for (const module of profile.modules) {
+    const seg = rayEnd.clone().sub(rayStart);
+    const denom = Math.max(0.0001, seg.lengthSq());
+    const t = THREE.MathUtils.clamp(module.center.clone().sub(rayStart).dot(seg) / denom, 0, 1);
+    const nearest = rayStart.clone().addScaledVector(seg, t);
+    const d = nearest.distanceTo(module.center);
+    if (d <= module.radius && d < bestDist) {
+      bestDist = d;
+      best = module.key;
+    }
+  }
+  return best;
+}
+
 function applyDamage(target, shell) {
-  const impact = shell.ammoType === "HE" ? 16 : 28;
+  const shotDistance = shell.distanceMeters ?? target.mesh.tank.position.distanceTo(shell.shooter.mesh.tank.position);
+  const shellPen = penAtDistance(shell.ammoType, shotDistance);
+  const incomingDir = shell.directionWorld.clone().normalize();
+  const impactPoint = shell.impactPointWorld.clone();
+  const { zone, armor, impactLocal, localIncoming } = classifyArmorZone(target, impactPoint, incomingDir);
+  const zoneNormalWorld = armor.normal.clone().applyQuaternion(target.mesh.tank.quaternion).normalize();
+  const slopeFactor = 1 / Math.max(0.1, Math.cos(THREE.MathUtils.degToRad(armor.slopeDeg)));
+  const angleFactor = 1 / Math.max(0.16, -incomingDir.dot(zoneNormalWorld));
+  const effectiveArmor = armor.thickness * slopeFactor * angleFactor;
+  const penetrated = shellPen >= effectiveArmor;
+  const impact = penetrated
+    ? (shell.ammoType === "HE" ? 18 : 34)
+    : (shell.ammoType === "HE" ? 7 : 4);
   const hpBefore = target.hp;
   target.hp = Math.max(0, target.hp - impact);
 
-  const moduleKeys = ["engine", "gun", "turret", "crew"];
-  const hitModule = moduleKeys[Math.floor(Math.random() * moduleKeys.length)];
-  const moduleDamage = shell.ammoType === "HE" ? 18 : 26;
+  const defaultModuleByZone = zone.includes("rear")
+    ? "engine"
+    : zone.includes("turret")
+      ? "turret"
+      : "crew";
+  const hitModule = closestModuleOnRay(target, impactLocal, localIncoming, penetrated) || defaultModuleByZone;
+  const moduleDamage = penetrated
+    ? (shell.ammoType === "HE" ? 24 : 34)
+    : (shell.ammoType === "HE" ? 8 : 5);
   const moduleBefore = target.modules[hitModule];
   target.modules[hitModule] = Math.max(0, target.modules[hitModule] - moduleDamage);
-  notification = `${target.isPlayer ? "You were hit" : "Enemy hit"}: ${hitModule.toUpperCase()} -${moduleDamage.toFixed(0)}`;
+  notification = `${target.isPlayer ? "You were hit" : "Enemy hit"}: ${zone.toUpperCase()} ${penetrated ? "PEN" : "BLOCK"} · ${hitModule.toUpperCase()} -${moduleDamage.toFixed(0)}`;
 
   if (!target.isPlayer && shell.shooter?.isPlayer) {
     target.ai.underFireTimer = 3.5;
@@ -350,12 +475,15 @@ function applyDamage(target, shell) {
   if (target.destroyed) notification = target.isPlayer ? "Player knocked out." : "Target destroyed.";
 
   return {
-    penetrated: shell.ammoType === "AP" ? Math.random() > 0.15 : Math.random() > 0.35,
+    penetrated,
     hpDamage: Math.max(0, hpBefore - target.hp),
     module: hitModule,
     moduleDamage: Math.max(0, moduleBefore - target.modules[hitModule]),
     destroyed: target.destroyed,
     ammoType: shell.ammoType,
+    armorZone: zone,
+    effectiveArmor: Math.round(effectiveArmor),
+    shellPen: Math.round(shellPen),
   };
 }
 
@@ -372,7 +500,7 @@ function showHitCam(report) {
   hitCam.ttl = 2.25;
   hitCam.report = report;
   hitCamEl.style.display = "block";
-  hitCamText.textContent = `${report.ammoType} ${report.penetrated ? "penetration" : "partial"} · ${report.module.toUpperCase()} -${report.moduleDamage} · HP -${report.hpDamage}${report.destroyed ? " · TARGET DESTROYED" : ""}`;
+  hitCamText.textContent = `${report.ammoType} ${report.penetrated ? "PEN" : "NON-PEN"} · ${report.armorZone.toUpperCase()} ${report.shellPen}/${report.effectiveArmor}mm · ${report.module.toUpperCase()} -${report.moduleDamage} · HP -${report.hpDamage}${report.destroyed ? " · TARGET DESTROYED" : ""}`;
 }
 
 function renderHitCam() {
@@ -406,7 +534,7 @@ function renderHitCam() {
 
   hitCamCtx.fillStyle = "rgba(255, 210, 155, .95)";
   hitCamCtx.font = "11px sans-serif";
-  hitCamCtx.fillText(r.penetrated ? "PEN" : "NON-PEN", 246, 30);
+  hitCamCtx.fillText(`${r.penetrated ? "PEN" : "NON-PEN"} ${r.shellPen}/${r.effectiveArmor}mm`, 202, 30);
 }
 
 function spawnFlash(position) {
@@ -728,12 +856,14 @@ window.addEventListener("mousedown", (e) => {
     mode.holdZoom = true;
     if (mode.view === "third") setMode("gunner");
   }
+  if (e.button === 1) dragLook = true;
 });
 window.addEventListener("mouseup", (e) => {
   if (e.button === 2) {
     mode.holdZoom = false;
     if (mode.view === "gunner") setMode("third");
   }
+  if (e.button === 1) dragLook = false;
 });
 
 window.addEventListener("keydown", (e) => {
@@ -767,7 +897,7 @@ window.addEventListener("mousemove", (e) => {
   mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-  if (document.pointerLockElement === renderer.domElement) {
+  if (document.pointerLockElement === renderer.domElement || dragLook) {
     const yawDelta = e.movementX * 0.0024;
     const pitchDelta = e.movementY * 0.0017;
     aim.cameraYaw -= yawDelta;
@@ -837,18 +967,25 @@ function updateCamera(dt) {
 
   const pivot = player.mesh.tank.position.clone().add(new THREE.Vector3(0, 2.8, 0));
   const orbitYaw = aim.cameraYaw;
-  const velocityOffset = THREE.MathUtils.clamp(-player.velocity * 0.35, -2.8, 2.8);
+  const velocityOffset = THREE.MathUtils.clamp(-player.velocity * 0.35, -2.2, 2.2);
   const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.tank.rotation.y);
   const speedRatio = THREE.MathUtils.clamp(Math.abs(player.velocity) / player.vehicle.maxForwardSpeed, 0, 1);
-  const leadDistance = THREE.MathUtils.lerp(0.3, 2.8, speedRatio);
-  const targetCamPos = pivot.clone().addScaledVector(forward, velocityOffset + leadDistance);
+  const leadDistance = THREE.MathUtils.lerp(0.2, 1.6, speedRatio);
+  const orbitRadius = THREE.MathUtils.lerp(7.5, 12.5, aim.zoomStep);
+  const orbitElev = THREE.MathUtils.clamp(2.2 + aim.cameraPitch * 5.2, 0.7, 5.5);
+  const orbitBack = new THREE.Vector3(Math.sin(orbitYaw), 0, Math.cos(orbitYaw)).multiplyScalar(-orbitRadius);
+  const targetCamPos = pivot.clone()
+    .add(orbitBack)
+    .add(new THREE.Vector3(0, orbitElev, 0))
+    .addScaledVector(forward, velocityOffset + leadDistance);
   targetCamPos.y = Math.max(targetCamPos.y, terrainHeightAt(targetCamPos.x, targetCamPos.z) + 0.75);
   const adaptiveLag = THREE.MathUtils.lerp(control.cameraLag, control.cameraLag * 1.9, speedRatio);
   camera.position.lerp(targetCamPos, 1 - Math.exp(-dt * adaptiveLag));
-  const viewDir = new THREE.Vector3(0, 0, 1)
-    .applyAxisAngle(new THREE.Vector3(1, 0, 0), aim.cameraPitch)
-    .applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
-  camera.lookAt(camera.position.clone().add(viewDir.multiplyScalar(70)));
+  const lookPoint = pivot
+    .clone()
+    .addScaledVector(forward, 1.6 + speedRatio * 1.4)
+    .add(new THREE.Vector3(0, THREE.MathUtils.clamp(aim.cameraPitch * 2.1, -0.5, 0.9), 0));
+  camera.lookAt(lookPoint);
 }
 
 function updateShells(dt) {
@@ -867,7 +1004,13 @@ function updateShells(dt) {
     const closestPoint = prevPos.clone().addScaledVector(segment, t);
 
     if (!target.destroyed && closestPoint.distanceTo(targetCenter) < 2.6) {
-      const report = applyDamage(target, { ammoType: shell.userData.ammoType, shooter: shell.userData.shooter });
+      const report = applyDamage(target, {
+        ammoType: shell.userData.ammoType,
+        shooter: shell.userData.shooter,
+        distanceMeters: shell.userData.shooter.mesh.tank.position.distanceTo(target.mesh.tank.position),
+        directionWorld: shell.userData.velocity.clone().normalize(),
+        impactPointWorld: closestPoint.clone(),
+      });
       if (shell.userData.shooter?.isPlayer && !target.isPlayer) showHitCam(report);
       if (report.destroyed) createBurningWreck(target);
       scene.remove(shell);
@@ -917,6 +1060,12 @@ function animate() {
   // Player movement.
   const steer = (keys.has("KeyA") ? 1 : 0) + (keys.has("KeyD") ? -1 : 0);
   const throttle = (keys.has("KeyW") ? 1 : 0) + (keys.has("KeyS") ? -1 : 0);
+  const camYawInput = (keys.has("ArrowLeft") ? 1 : 0) + (keys.has("ArrowRight") ? -1 : 0);
+  const camPitchInput = (keys.has("ArrowUp") ? 1 : 0) + (keys.has("ArrowDown") ? -1 : 0);
+  if (camYawInput !== 0 || camPitchInput !== 0) {
+    aim.cameraYaw += camYawInput * dt * 1.55;
+    aim.cameraPitch = THREE.MathUtils.clamp(aim.cameraPitch + camPitchInput * dt * 1.1, -0.3, 0.58);
+  }
 
   if (!player.destroyed && player.modules.engine > 0) {
     const hpPerTon = player.vehicle.horsepower / player.vehicle.massTons;

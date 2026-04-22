@@ -56,7 +56,7 @@ Use the following manual smoke-test checklist after starting the game:
    - `RMB` hold zooms.
 5. **Battle state**
    - Enemy AI transitions through behaviors during engagement.
-   - `R` restarts battle cleanly.
+   - `P` restarts battle cleanly.
 
 ### Optional quick check command
 
@@ -85,20 +85,21 @@ If the server starts and `web_renderer/index.html` loads in your browser, the bu
 
 - `W/S`: throttle forward/reverse
 - `A/D`: hull steering
-- `Shift`: temporary power boost
 - `Mouse`: aim/look (click canvas to lock pointer)
+- `MMB drag`: orbit camera without pointer lock
 - `LMB` or `Space`: fire
 - `RMB (hold)`: zoom
-- `Q/E`: turret trim
-- `R/F`: gun elevation trim
+- `R`: rangefinder
 - `V`: toggle gunner sight mode
 - `B`: toggle binocular mode
-- `C`: free-look toggle (third-person)
-- `X`: rangefinder
+- `C` or `Left Alt`: free-look hold (third-person)
 - `1`: AP ammo
 - `2`: HE ammo
 - `Tab`: cycle ammo
-- `R`: restart battle
+- `G`: toggle stabilizer
+- `H`: toggle drive assist
+- `Arrow keys`: camera yaw/pitch
+- `P`: restart battle
 
 ## Project structure
 
